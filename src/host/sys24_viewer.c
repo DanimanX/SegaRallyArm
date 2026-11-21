@@ -462,6 +462,10 @@ int sys24_viewer_open(const char *title)
     arm64_pin_current_thread(0);
     arm64_set_thread_name("main_gl");
 
+    /* Log to SD files survives a hard power-off only if stdout is
+     * line-buffered; the default full buffering loses the whole tail. */
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
     g_tile = sys24_tile_create(SYS24_TILE_MASK_M2);
     if (!g_tile) {
         fprintf(stderr, "lift: sys24_tile_create failed\n");

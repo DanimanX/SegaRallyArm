@@ -136,10 +136,17 @@ int arm64_controls_poll(float delta_time, int in_race, int in_menu)
         return 1; /* Signal quit */
     }
 
-    /* Test menu combo: Select + X, or Guide/Menu button */
-    if ((btn_select && btn_x) || btn_guide) {
-        model2_io_request_test_menu();
-        model2_io_in0_set_mask(MODEL2_IO_IN0_TEST, 1);
+    /* Test menu combo: Select + X, or Guide/Menu button.
+     * The TEST line on IN0 is active-low and must track the button every
+     * frame — latching it (set 1, never clear) leaves the cab stuck in
+     * service mode, which rejects COIN/START. */
+    {
+        int test_held = (btn_select && btn_x) || btn_guide;
+        static int test_prev = 0;
+        if (test_held && !test_prev)
+            model2_io_request_test_menu();
+        model2_io_in0_set_mask(MODEL2_IO_IN0_TEST, test_held);
+        test_prev = test_held;
     }
 
     /* Arcade digital Centring-Spring steering model */
@@ -199,6 +206,20 @@ int arm64_controls_poll(float delta_time, int in_race, int in_menu)
     model2_io_in0_set_mask(MODEL2_IO_IN0_COIN1, btn_select);
     model2_io_in0_set_mask(MODEL2_IO_IN0_START1, btn_start);
     model2_io_in0_set_mask(MODEL2_IO_IN0_VR, btn_x);
+
+    /* Edge debug: answers "which pad button is coin?" from log.txt. */
+    {
+        static int prev_coin = 0, prev_start = 0, prev_guide = 0;
+        if (btn_select && !prev_coin)
+            printf("arm64_controls: COIN1 edge (select/back)\n");
+        if (btn_start && !prev_start)
+            printf("arm64_controls: START1 edge (start)\n");
+        if (btn_guide && !prev_guide)
+            printf("arm64_controls: GUIDE edge (menu btn)\n");
+        prev_coin = btn_select;
+        prev_start = btn_start;
+        prev_guide = btn_guide;
+    }
 
     return 0;
 }
