@@ -11,6 +11,7 @@
 
 #include "model2_hw.h"
 #include "lift_log.h"
+#include "thread_affinity.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -211,6 +212,8 @@ static void *vsync_timer_thread(void *arg)
     const long period_ns = vsync_period_ns();
 
     (void)arg;
+    arm64_pin_current_thread(3);
+    arm64_set_thread_name("vsync_timer");
 
     log_vsync_timing_once();
     clock_gettime(CLOCK_MONOTONIC, &deadline);

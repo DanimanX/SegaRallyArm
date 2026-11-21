@@ -1389,7 +1389,7 @@ int model2_geo_render_dump_summary(const char *path)
 
 void model2_geo_render_draw_gl(void)
 {
-#ifdef I960_HOST_HAVE_GL
+#if defined(I960_HOST_HAVE_GL) && !defined(SEGAMOD2_GLES) && !defined(__aarch64__)
     unsigned i;
 
     if (g_n_indices >= 3u && g_positions) {

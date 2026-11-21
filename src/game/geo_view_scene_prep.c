@@ -38,7 +38,7 @@ static void frame_st(u8 *frame, u32 off, u32 v)
     memcpy(frame + off, &v, sizeof(v));
 }
 
-static u32 fadd(u32 a, u32 b)
+static u32 i960_local_fadd(u32 a, u32 b)
 {
     double s = i960_u32_to_f64(a) + i960_u32_to_f64(b);
 
@@ -47,12 +47,12 @@ static u32 fadd(u32 a, u32 b)
     return (u32)i960_f64_to_u32(s);
 }
 
-static u32 fsub(u32 a, u32 b)
+static u32 i960_local_fsub(u32 a, u32 b)
 {
     return (u32)i960_f64_to_u32(i960_u32_to_f64(a) - i960_u32_to_f64(b));
 }
 
-static u32 fmul(u32 a, u32 b)
+static u32 i960_local_fmul(u32 a, u32 b)
 {
     return (u32)i960_f64_to_u32(i960_u32_to_f64(a) * i960_u32_to_f64(b));
 }
@@ -146,9 +146,9 @@ void * geo_view_scene_prep(void *arg0, void *arg1, void *arg2)
         frame_st(frame, read_off + 0u, sx);
         frame_st(frame, read_off + 4u, sy);
         frame_st(frame, read_off + 8u, sz);
-        frame_st(frame, sum_off + 0u, fadd(a1[0], sx));
-        frame_st(frame, sum_off + 4u, fadd(a1[1], sy));
-        frame_st(frame, sum_off + 8u, fadd(a1[2], sz));
+        frame_st(frame, sum_off + 0u, i960_local_fadd(a1[0], sx));
+        frame_st(frame, sum_off + 4u, i960_local_fadd(a1[1], sy));
+        frame_st(frame, sum_off + 8u, i960_local_fadd(a1[2], sz));
     }
 
     g0 = course;
@@ -215,9 +215,9 @@ void * geo_view_scene_prep(void *arg0, void *arg1, void *arg2)
 
             /* The i960's first record aliases fp+0xd0.  Keep that guest
              * stack alias explicit; host frame addresses cannot compare equal. */
-            nx = fsub(fmul(wy, vz), fmul(vy, wz));
-            ny = fsub(fmul(vx, wz), fmul(wx, vz));
-            nz = fsub(fmul(wx, vy), fmul(vx, wy));
+            nx = i960_local_fsub(i960_local_fmul(wy, vz), i960_local_fmul(vy, wz));
+            ny = i960_local_fsub(i960_local_fmul(vx, wz), i960_local_fmul(wx, vz));
+            nz = i960_local_fsub(i960_local_fmul(wx, vy), i960_local_fmul(vx, wy));
             if (i == 0u) {
                 frame_st(frame, 0xe0, nx);
                 frame_st(frame, 0xe4, ny);
@@ -248,9 +248,9 @@ void * geo_view_scene_prep(void *arg0, void *arg1, void *arg2)
                 u32 cy = frame_ld(frame, 0xd4);
                 u32 cz = frame_ld(frame, 0xd8);
 
-                nx = fsub(fmul(cy, wz), fmul(wy, cz));
-                ny = fsub(fmul(wx, cz), fmul(cx, wz));
-                nz = fsub(fmul(cx, wy), fmul(wx, cy));
+                nx = i960_local_fsub(i960_local_fmul(cy, wz), i960_local_fmul(wy, cz));
+                ny = i960_local_fsub(i960_local_fmul(wx, cz), i960_local_fmul(cx, wz));
+                nz = i960_local_fsub(i960_local_fmul(cx, wy), i960_local_fmul(wx, cy));
             }
             frame_st(frame, 0xd0, nx);
             frame_st(frame, 0xd4, ny);
@@ -407,28 +407,28 @@ void * geo_view_scene_prep(void *arg0, void *arg1, void *arg2)
             double sz = 0.0;
 
             i960_st_u32(I960_ABS, node_va, 0x48,
-                        fadd(i960_ld_u32(I960_ABS, node_va, 0x48),
+                        i960_local_fadd(i960_ld_u32(I960_ABS, node_va, 0x48),
                              (u32)i960_f64_to_u32(step)));
-            a2[1] = fadd(i960_ld_u32(I960_ABS, node_va, 0x3c),
+            a2[1] = i960_local_fadd(i960_ld_u32(I960_ABS, node_va, 0x3c),
                          i960_ld_u32(I960_ABS, node_va, 0x48));
             for (i = 0; i < 4u; i++) {
                 sx += i960_u32_to_f64(frame_ld(frame, 0xa0u + i * 12u));
                 sz += i960_u32_to_f64(frame_ld(frame, 0xa8u + i * 12u));
             }
             i960_st_u32(I960_ABS, node_va, 0x2c,
-                        fadd(i960_ld_u32(I960_ABS, node_va, 0x2c),
+                        i960_local_fadd(i960_ld_u32(I960_ABS, node_va, 0x2c),
                              (u32)i960_f64_to_u32(
                                  sx / i960_u32_to_f64(
                                      i960_ld_u32(I960_ABS, node_va, 0x50)))));
             i960_st_u32(I960_ABS, node_va, 0x34,
-                        fadd(i960_ld_u32(I960_ABS, node_va, 0x34),
+                        i960_local_fadd(i960_ld_u32(I960_ABS, node_va, 0x34),
                              (u32)i960_f64_to_u32(
                                  sz / i960_u32_to_f64(
                                      i960_ld_u32(I960_ABS, node_va, 0x50)))));
 
-            a1[0] = fadd(i960_ld_u32(I960_ABS, node_va, 0x14),
+            a1[0] = i960_local_fadd(i960_ld_u32(I960_ABS, node_va, 0x14),
                          i960_ld_u32(I960_ABS, node_va, 0x2c));
-            a1[2] = fadd(i960_ld_u32(I960_ABS, node_va, 0x1c),
+            a1[2] = i960_local_fadd(i960_ld_u32(I960_ABS, node_va, 0x1c),
                          i960_ld_u32(I960_ABS, node_va, 0x34));
 
             if (i960_ld_u32(I960_ABS, 0x2142c8, 0) == 0u) {

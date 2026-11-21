@@ -5,6 +5,7 @@
 #include "model2_snd_scsp.h"
 #include "model2_snd_m68k.h"
 #include "lift_log.h"
+#include "thread_affinity.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -248,6 +249,8 @@ static void *board_thread(void *arg)
     struct timespec deadline;
 
     (void)arg;
+    arm64_pin_current_thread(2);
+    arm64_set_thread_name("snd_scsp");
     pthread_mutex_lock(&g_cpu_mu);
     boot_68k();
     pthread_mutex_unlock(&g_cpu_mu);

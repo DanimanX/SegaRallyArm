@@ -242,6 +242,14 @@ int track_viewer_cli_parse(int argc, char **argv, track_viewer_opts_t *opts)
                 cli_setenv("I960_COPRO_DUMP", s_copro_dump);
             continue;
         }
+        if (streq(argv[i], "--fullscreen")) {
+            cli_setenv("SEGAMOD2_FULLSCREEN", "1");
+            continue;
+        }
+        if (streq(argv[i], "--data-dir") && i + 1 < argc) {
+            cli_setenv("SEGAMOD2_ROOT", argv[++i]);
+            continue;
+        }
         if (streq(argv[i], "--log-sound") || streq(argv[i], "--sound-log")) {
             const char *path = optional_path(&i, argc, argv, "build/lift/sound_midi.log");
 

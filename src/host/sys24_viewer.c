@@ -25,6 +25,8 @@ extern void model2_snd_host_audio_close(void);
 
 #ifdef I960_HOST_HAVE_SDL
 #include <SDL.h>
+#include "controls.h"
+#include "thread_affinity.h"
 #ifdef I960_HOST_HAVE_GL
 #include "model2_gl.h"
 #endif
@@ -337,24 +339,50 @@ int sys24_viewer_open(const char *title)
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     /* MAME geo fillmap — host approximates with stencil (first texel wins). */
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#if defined(SEGAMOD2_GLES) || defined(__aarch64__)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
-    g_window = SDL_CreateWindow(
-        VIEWER_TITLE,
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        win_w,
-        win_h,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 #else
+    const char *gles_env = getenv("DAYTONA_GLES");
+    if (!gles_env) gles_env = getenv("SEGAMOD2_GLES");
+    if (gles_env && gles_env[0] == '1') {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    } else {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+    }
+#endif
+    int win_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL;
+    const char *fs_env = getenv("SEGAMOD2_FULLSCREEN");
+    if (!fs_env) fs_env = getenv("DAYTONA_FULLSCREEN");
+    if (fs_env && fs_env[0] == '1') {
+        win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    }
     g_window = SDL_CreateWindow(
         VIEWER_TITLE,
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         win_w,
         win_h,
-        SDL_WINDOW_RESIZABLE);
+        win_flags);
+#else
+    int win_flags = SDL_WINDOW_RESIZABLE;
+    const char *fs_env = getenv("SEGAMOD2_FULLSCREEN");
+    if (!fs_env) fs_env = getenv("DAYTONA_FULLSCREEN");
+    if (fs_env && fs_env[0] == '1') {
+        win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    }
+    g_window = SDL_CreateWindow(
+        VIEWER_TITLE,
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        win_w,
+        win_h,
+        win_flags);
 #endif
     if (!g_window) {
         fprintf(stderr, "lift: SDL_CreateWindow failed: %s\n", SDL_GetError());
@@ -414,6 +442,10 @@ int sys24_viewer_open(const char *title)
         return -1;
     }
 #endif
+
+    arm64_controls_init("gamecontrollerdb.txt");
+    arm64_pin_current_thread(0);
+    arm64_set_thread_name("main_gl");
 
     g_tile = sys24_tile_create(SYS24_TILE_MASK_M2);
     if (!g_tile) {
@@ -693,6 +725,9 @@ int sys24_viewer_poll_events(void)
 
     in_test = (i960_ld_u32(I960_WORKRAM, 0x202098, 0) == 4u);
     race_go = ((i32)i960_ld_u32(I960_WORKRAM, 0x214120, 0) > 0);
+
+    if (arm64_controls_poll(1.0f / 60.0f, race_go, in_test) != 0)
+        return 1;
 
     while (SDL_PollEvent(&ev)) {
         if (ev.type == SDL_QUIT)
@@ -1537,6 +1572,7 @@ int sys24_viewer_present(const u8 *tile_map, const u8 *char_ram, const u8 *palra
 
 void sys24_viewer_shutdown(void)
 {
+    arm64_controls_shutdown();
     /* Persist NVRAM while workram / backup SRAM are still live. */
     (void)model2_nvram_save(NULL);
     sys24_viewer_record_stop();

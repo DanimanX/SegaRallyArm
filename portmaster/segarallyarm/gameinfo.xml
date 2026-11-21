@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gameList>
+  <game>
+    <path>./Sega Rally.sh</path>
+    <name>SegaRallyArm (Sega Rally Championship 1995)</name>
+    <desc>Native ARM64 / OpenGL ES 2.0 static recompilation handheld port of Sega Rally Championship 1995 (Sega Model 2A CRX), tuned for Allwinner H700 / Anbernic RG34XX with 4-core thread affinity, Mali-G31 GLES 2.0 rendering, and D-pad arcade spring centering steering. Bring your own legal MAME ROM set.</desc>
+    <releasedate>19950101T000000</releasedate>
+    <developer>SEGA AM3 (Uplift: xandoxan65, ARM64 Port: SegaRallyArm)</developer>
+    <publisher>PortMaster</publisher>
+    <genre>Racing</genre>
+    <players>1-2</players>
+  </game>
+</gameList>

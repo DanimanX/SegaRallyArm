@@ -1,0 +1,91 @@
+# Automatically builds and verifies the ROM-free AArch64 / OpenGL ES 2.0
+# PortMaster package for SegaRallyArm (Anbernic RG34XX / Allwinner H700 and
+# compatible ARM64 Linux handhelds), verifies dynamic symbols, and publishes
+# GitHub Releases on tags.
+#
+# Zero copyrighted ROMs or ROM-derived game assets ever enter the build or artifacts.
+name: Build ARM64 PortMaster
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target_cpu:
+        description: 'Target ARM64 CPU (cortex_a53 for RG34XX/H700, cortex_a55 for RK3566, generic)'
+        required: false
+        default: 'cortex_a53'
+
+permissions:
+  contents: write
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update -q
+          sudo apt-get -o Acquire::Retries=3 install -qy --no-install-recommends \
+            build-essential python3 curl git tar xz-utils zip file binutils
+
+      - name: Cache cross-compile dependencies (Zig, SDL2 headers)
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            !deps/zig-cache
+          key: segarallyarm-deps-${{ hashFiles('tools/build-arm64.sh') }}
+
+      - name: Cross-compile AArch64 runtime and assemble PortMaster package
+        env:
+          TARGET_CPU: ${{ github.event.inputs.target_cpu || 'cortex_a53' }}
+        run: |
+          chmod +x tools/build-arm64.sh tools/build-host-test.sh portmaster/*.sh
+          tools/build-arm64.sh
+          (cd dist && sha256sum SegaRallyArm-PortMaster-aarch64.zip > SegaRallyArm-PortMaster-aarch64.zip.sha256)
+          ls -lh dist/
+
+      - name: Upload PortMaster artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SegaRallyArm-PortMaster-aarch64
+          path: |
+            dist/SegaRallyArm-PortMaster-aarch64.zip
+            dist/SegaRallyArm-PortMaster-aarch64.zip.sha256
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          FILES="dist/SegaRallyArm-PortMaster-aarch64.zip dist/SegaRallyArm-PortMaster-aarch64.zip.sha256"
+          cat > dist/release-notes.md <<'EOF'
+          Automated ROM-free AArch64 / OpenGL ES 2.0 / NEON PortMaster build of **SegaRallyArm** tuned for Anbernic RG34XX (Allwinner H700) and compatible ARM64 Linux handhelds.
+
+          ### Contents (Zero ROMs / Zero Game Assets)
+          - `Sega Rally.sh`, `Sega Rally Practice.sh` (PortMaster launchers with `performance` CPU governor)
+          - `segarallyarm/segarally.aarch64` (ARM64 Cortex-A53, 4-core pipeline, OpenGL ES 2.0, ARM64 NEON, max `GLIBC_2.17` reference)
+          - `segarallyarm/gamecontrollerdb.txt` (includes Anbernic RG34XX mapping), PortMaster metadata, and licences
+
+          ### Quick Setup (BYOD)
+          1. Extract `SegaRallyArm-PortMaster-aarch64.zip` into your handheld's `ports/` folder.
+          2. Copy your legally owned MAME `srallyc.zip` or `srallycb.zip` (or board dumps `srallyc-b/`) into `ports/segarallyarm/roms/`.
+          3. Launch `Sega Rally.sh` from your device's Ports menu!
+          EOF
+          sed -i 's/^          //' dist/release-notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" $FILES --clobber
+          else
+            gh release create "$TAG" $FILES \
+              --title "SegaRallyArm $TAG (ARM64 / Anbernic RG34XX PortMaster)" \
+              --notes-file dist/release-notes.md
+          fi

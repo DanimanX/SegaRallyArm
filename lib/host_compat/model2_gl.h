@@ -8,7 +8,88 @@
 
 #ifdef I960_HOST_HAVE_GL
 
-#if defined(__APPLE__)
+#if defined(SEGAMOD2_GLES) || defined(__aarch64__)
+#define GL_GLEXT_PROTOTYPES 1
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+
+#ifndef GL_VERTEX_ARRAY
+#define GL_VERTEX_ARRAY 0x8074
+#endif
+#ifndef GL_TEXTURE_COORD_ARRAY
+#define GL_TEXTURE_COORD_ARRAY 0x8078
+#endif
+#ifndef GL_COLOR_ARRAY
+#define GL_COLOR_ARRAY 0x8076
+#endif
+#ifndef GL_QUADS
+#define GL_QUADS 7
+#endif
+#ifndef GL_POLYGON
+#define GL_POLYGON 9
+#endif
+#ifndef GL_PROJECTION
+#define GL_PROJECTION 0x1701
+#endif
+#ifndef GL_MODELVIEW
+#define GL_MODELVIEW 0x1700
+#endif
+#ifndef GL_TEXTURE_ENV
+#define GL_TEXTURE_ENV 0x2300
+#endif
+#ifndef GL_TEXTURE_ENV_MODE
+#define GL_TEXTURE_ENV_MODE 0x2200
+#endif
+#ifndef GL_REPLACE
+#define GL_REPLACE 0x1E01
+#endif
+#ifndef GL_FRONT_AND_BACK
+#define GL_FRONT_AND_BACK 0x0408
+#endif
+#ifndef GL_FILL
+#define GL_FILL 0x1B02
+#endif
+#ifndef GL_BACK
+#define GL_BACK 0x0405
+#endif
+
+static inline void glReadBuffer(GLenum mode) { (void)mode; }
+static inline void glPolygonMode(GLenum face, GLenum mode) { (void)face; (void)mode; }
+
+static inline void gles_vertex_pointer(GLint size, GLenum type, GLsizei stride, const void *ptr) {
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, size, type, GL_FALSE, stride, ptr);
+}
+static inline void gles_texcoord_pointer(GLint size, GLenum type, GLsizei stride, const void *ptr) {
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, size, type, GL_FALSE, stride, ptr);
+}
+static inline void gles_color_pointer(GLint size, GLenum type, GLsizei stride, const void *ptr) {
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, size, type, GL_TRUE, stride, ptr);
+}
+
+#define glEnableClientState(x) ((void)0)
+#define glDisableClientState(x) ((void)0)
+#define glVertexPointer(size, type, stride, ptr) gles_vertex_pointer(size, type, stride, ptr)
+#define glTexCoordPointer(size, type, stride, ptr) gles_texcoord_pointer(size, type, stride, ptr)
+#define glColorPointer(size, type, stride, ptr) gles_color_pointer(size, type, stride, ptr)
+
+#define glMatrixMode(x) ((void)0)
+#define glLoadIdentity() ((void)0)
+#define glOrtho(l, r, b, t, n, f) ((void)0)
+#define glLoadMatrixf(m) ((void)0)
+#define glColor4f(r, g, b, a) ((void)0)
+#define glColor3f(r, g, b) ((void)0)
+#define glTexCoord2f(u, v) ((void)0)
+#define glVertex2f(x, y) ((void)0)
+#define glVertex3f(x, y, z) ((void)0)
+#define glPointSize(s) ((void)0)
+#define glTexEnvi(t, p, v) ((void)0)
+#define glBegin(x) ((void)0)
+#define glEnd() ((void)0)
+
+#elif defined(__APPLE__)
 /* Apple marks the whole OpenGL API deprecated; we still use it on purpose. */
 #ifndef GL_SILENCE_DEPRECATION
 #define GL_SILENCE_DEPRECATION

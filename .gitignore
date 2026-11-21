@@ -1,11 +1,13 @@
 /out/
 /build/
+/build-*/
+/dist/
+/deps/
 /log
 ROMS/*
 !ROMS/README.md
 !ROMS/manifest.yaml
 !ROMS/srallyc-b/.gitkeep
-/tools/
 *.o
 *.a
 .DS_Store
@@ -16,3 +18,4 @@ lib/model2/*/build/
 *.bin
 !disasm/**/*.bin
 .cache
+CLAUDE.md

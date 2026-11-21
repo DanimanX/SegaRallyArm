@@ -104,6 +104,7 @@ target_include_directories(segamod2_common INTERFACE
   ${CMAKE_SOURCE_DIR}/lib/model2/tgp/include
   ${CMAKE_SOURCE_DIR}/lib/model2/snd/include
   ${CMAKE_SOURCE_DIR}/lib/host_compat
+  ${CMAKE_SOURCE_DIR}/platform/arm64
 )
 if(WIN32 AND NOT HAVE_PTHREAD_H)
   target_include_directories(segamod2_common BEFORE INTERFACE
@@ -218,6 +219,12 @@ file(GLOB LIFT_LIBC CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/libc/*.c)
 file(GLOB LIFT_BOOT CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/boot/*.c)
 file(GLOB LIFT_IRQ  CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/irq/*.c)
 
+set(PLATFORM_ARM64_SRCS
+  platform/arm64/gl_funcs.c
+  platform/arm64/controls.c
+  platform/arm64/gpu_gles.c
+)
+
 add_executable(segamod2
   ${LIFT_HOST_RUNTIME}
   ${LIFT_GAME_GLUE}
@@ -226,6 +233,7 @@ add_executable(segamod2
   ${LIFT_LIBC}
   ${LIFT_BOOT}
   ${LIFT_IRQ}
+  ${PLATFORM_ARM64_SRCS}
 )
 target_link_libraries(segamod2 PRIVATE
   model2_geo model2_hw model2_tgp model2_snd host_compat)

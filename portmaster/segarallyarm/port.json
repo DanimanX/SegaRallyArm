@@ -1,0 +1,34 @@
+{
+  "version": 3,
+  "name": "segarallyarm.zip",
+  "items": [
+    "Sega Rally.sh",
+    "Sega Rally Practice.sh",
+    "segarallyarm"
+  ],
+  "items_opt": [],
+  "attr": {
+    "title": "SegaRallyArm (Sega Rally Championship 1995)",
+    "porter": "DanimanX",
+    "desc": "Native ARM64 / OpenGL ES 2.0 handheld port of segarally95-recomp (Sega Model 2A CRX static recompilation for Sega Rally Championship 1995), engineered for Anbernic RG34XX (Allwinner H700 / Mali-G31 MP2) and compatible PortMaster AArch64 Linux handhelds. 57.52 FPS locked arcade speed with 4-core pipelining, real-time SCSP/68EC000 audio synthesis, and D-pad arcade spring centering steering.",
+    "desc_md": null,
+    "inst": "1. Copy your legally owned MAME ROM archive (srallyc.zip / srallycb.zip) or extracted ROM blocks (srallyc-b/) into ports/segarallyarm/roms/.\n2. Launch Sega Rally.sh (or Sega Rally Practice.sh for instant Desert stage practice).\n3. Default Controls: D-Pad / Left Stick = Steering, A = Throttle, B = Brake, X = Change View, L1/R1 = Sequential Gear Shifter, Select = Coin, Start = Start. Press Select+Start simultaneously to exit.",
+    "inst_md": null,
+    "genres": [
+      "racing",
+      "arcade"
+    ],
+    "image": null,
+    "rtr": false,
+    "exp": true,
+    "runtime": null,
+    "reqs": [
+      "opengl",
+      "!lowres"
+    ],
+    "arch": [
+      "aarch64"
+    ],
+    "min_glibc": "2.28"
+  }
+}

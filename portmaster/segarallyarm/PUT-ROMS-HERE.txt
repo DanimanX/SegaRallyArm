@@ -1,0 +1,27 @@
+SegaRallyArm — Bring Your Own Data (BYOD)
+=========================================
+
+No copyrighted ROM files or ROM-derived game assets are included in this package.
+
+Required files on your handheld SD card:
+1. Place your legally dumped Sega Rally Championship arcade ROM archive or folder
+   into this directory (ports/segarallyarm/roms/):
+     - roms/srallyc.zip
+     - OR roms/srallycb.zip
+     - OR extracted board dumps under roms/srallyc-b/
+
+2. First launch:
+   On first execution, the SegaRallyArm runtime validates ROM checksums against the
+   official Model 2A manifest and caches extracted graphic/sound blocks.
+
+3. Controls:
+   - D-Pad / Left Stick: Analog Steering (with arcade centering spring simulation)
+   - Button A (South): Throttle
+   - Button B (East): Foot Brake
+   - Button Y (North): Handbrake
+   - Button X (West): VR Change View
+   - L1 / R1: Sequential Gear Shifter Down / Up (Manual Transmission)
+   - Start: Start 1
+   - Select: Coin 1
+   - Select + Start: Exit game
+   - Select + X (or Menu / F2): Test Menu

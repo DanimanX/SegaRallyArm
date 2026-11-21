@@ -55,12 +55,12 @@ static void ang_store(u32 ang, u32 off, u32 v)
     i960_st_u32(I960_ABS, ang, off, v);
 }
 
-static u32 fmul(u32 a, u32 b)
+static u32 i960_local_fmul(u32 a, u32 b)
 {
     return (u32)i960_f64_to_u32(i960_u32_to_f64(a) * i960_u32_to_f64(b));
 }
 
-static u32 fsub(u32 a, u32 b)
+static u32 i960_local_fsub(u32 a, u32 b)
 {
     return (u32)i960_f64_to_u32(i960_u32_to_f64(a) - i960_u32_to_f64(b));
 }
@@ -146,9 +146,9 @@ void game_start_race_obj_road_angles(void *arg0, u32 arg1, u32 arg2)
      *   r5 = ux*sz - sx*uz
      *   r6 = sx*uy - ux*sy
      */
-    c0 = fsub(fmul(sy, uz), fmul(uy, sz));
-    c1 = fsub(fmul(ux, sz), fmul(sx, uz));
-    c2 = fsub(fmul(sx, uy), fmul(ux, sy));
+    c0 = i960_local_fsub(i960_local_fmul(sy, uz), i960_local_fmul(uy, sz));
+    c1 = i960_local_fsub(i960_local_fmul(ux, sz), i960_local_fmul(sx, uz));
+    c2 = i960_local_fsub(i960_local_fmul(sx, uy), i960_local_fmul(ux, sy));
     frame_st(frame, 0x50, c0);
     frame_st(frame, 0x54, c1);
     frame_st(frame, 0x58, c2);
@@ -159,9 +159,9 @@ void game_start_race_obj_road_angles(void *arg0, u32 arg1, u32 arg2)
      *   r9 = sx*c2 - c0*sz
      *   r10= c0*sy - sx*c1
      */
-    b0 = fsub(fmul(c1, sz), fmul(sy, c2));
-    b1 = fsub(fmul(sx, c2), fmul(c0, sz));
-    b2 = fsub(fmul(c0, sy), fmul(sx, c1));
+    b0 = i960_local_fsub(i960_local_fmul(c1, sz), i960_local_fmul(sy, c2));
+    b1 = i960_local_fsub(i960_local_fmul(sx, c2), i960_local_fmul(c0, sz));
+    b2 = i960_local_fsub(i960_local_fmul(c0, sy), i960_local_fmul(sx, c1));
 
     /*
      * @0x2F6C8 b skips to @0x2F710. Live path:
