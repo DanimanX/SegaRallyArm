@@ -56,6 +56,12 @@ static const char *nvram_default_path(void)
 
     if (env && env[0] && env[0] != '0')
         return env;
+    env = getenv("SEGAMOD2_ROOT");
+    if (env && env[0]) {
+        static char rooted[512];
+        snprintf(rooted, sizeof(rooted), "%s/nvram.yaml", env);
+        return rooted;
+    }
     return "build/lift/nvram.yaml";
 }
 

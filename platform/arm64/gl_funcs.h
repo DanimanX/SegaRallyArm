@@ -27,64 +27,64 @@ typedef ptrdiff_t      GLsizeiptr;
 
 #define GL_FALSE                       0
 #define GL_TRUE                        1
-#define GL_DEPTH_BUFFER_BIT            0x00000100u
-#define GL_STENCIL_BUFFER_BIT          0x00000400u
-#define GL_COLOR_BUFFER_BIT            0x00004000u
+#define GL_DEPTH_BUFFER_BIT            0x00000100
+#define GL_STENCIL_BUFFER_BIT          0x00000400
+#define GL_COLOR_BUFFER_BIT            0x00004000
 
-#define GL_TRIANGLES                   0x0004u
-#define GL_TRIANGLE_STRIP              0x0005u
-#define GL_EQUAL                       0x0202u
-#define GL_LEQUAL                      0x0203u
-#define GL_LESS                        0x0201u
-#define GL_GEQUAL                      0x0206u
-#define GL_SRC_ALPHA                   0x0302u
-#define GL_ONE_MINUS_SRC_ALPHA         0x0303u
+#define GL_TRIANGLES                   0x0004
+#define GL_TRIANGLE_STRIP              0x0005
+#define GL_EQUAL                       0x0202
+#define GL_LEQUAL                      0x0203
+#define GL_LESS                        0x0201
+#define GL_GEQUAL                      0x0206
+#define GL_SRC_ALPHA                   0x0302
+#define GL_ONE_MINUS_SRC_ALPHA         0x0303
 
-#define GL_KEEP                        0x1E00u
-#define GL_INCR                        0x1E02u
+#define GL_KEEP                        0x1E00
+#define GL_INCR                        0x1E02
 
-#define GL_CULL_FACE                   0x0B44u
-#define GL_DEPTH_TEST                  0x0B71u
-#define GL_STENCIL_TEST                0x0B90u
-#define GL_BLEND                       0x0BE2u
-#define GL_SCISSOR_TEST                0x0C11u
-#define GL_UNPACK_ALIGNMENT            0x0CF5u
-#define GL_TEXTURE_2D                  0x0DE1u
+#define GL_CULL_FACE                   0x0B44
+#define GL_DEPTH_TEST                  0x0B71
+#define GL_STENCIL_TEST                0x0B90
+#define GL_BLEND                       0x0BE2
+#define GL_SCISSOR_TEST                0x0C11
+#define GL_UNPACK_ALIGNMENT            0x0CF5
+#define GL_TEXTURE_2D                  0x0DE1
 
-#define GL_UNSIGNED_BYTE               0x1401u
-#define GL_UNSIGNED_SHORT              0x1403u
-#define GL_UNSIGNED_INT                0x1405u
-#define GL_FLOAT                       0x1406u
+#define GL_UNSIGNED_BYTE               0x1401
+#define GL_UNSIGNED_SHORT              0x1403
+#define GL_UNSIGNED_INT                0x1405
+#define GL_FLOAT                       0x1406
 
-#define GL_LUMINANCE                   0x1909u
-#define GL_RGBA                        0x1908u
-#define GL_STENCIL_BITS                0x0D57u
+#define GL_LUMINANCE                   0x1909
+#define GL_RGBA                        0x1908
+#define GL_STENCIL_BITS                0x0D57
 
-#define GL_VENDOR                      0x1F00u
-#define GL_RENDERER                    0x1F01u
-#define GL_VERSION                     0x1F02u
+#define GL_VENDOR                      0x1F00
+#define GL_RENDERER                    0x1F01
+#define GL_VERSION                     0x1F02
 
-#define GL_NEAREST                     0x2600u
-#define GL_LINEAR                      0x2601u
-#define GL_TEXTURE_MAG_FILTER          0x2800u
-#define GL_TEXTURE_MIN_FILTER          0x2801u
-#define GL_TEXTURE_WRAP_S              0x2802u
-#define GL_TEXTURE_WRAP_T              0x2803u
-#define GL_CLAMP_TO_EDGE               0x812Fu
+#define GL_NEAREST                     0x2600
+#define GL_LINEAR                      0x2601
+#define GL_TEXTURE_MAG_FILTER          0x2800
+#define GL_TEXTURE_MIN_FILTER          0x2801
+#define GL_TEXTURE_WRAP_S              0x2802
+#define GL_TEXTURE_WRAP_T              0x2803
+#define GL_CLAMP_TO_EDGE               0x812F
 
-#define GL_TEXTURE0                    0x84C0u
-#define GL_TEXTURE1                    0x84C1u
+#define GL_TEXTURE0                    0x84C0
+#define GL_TEXTURE1                    0x84C1
 
-#define GL_ARRAY_BUFFER                0x8892u
-#define GL_ELEMENT_ARRAY_BUFFER        0x8893u
-#define GL_STREAM_DRAW                 0x88E0u
-#define GL_STATIC_DRAW                 0x88E4u
-#define GL_DYNAMIC_DRAW                0x88E8u
+#define GL_ARRAY_BUFFER                0x8892
+#define GL_ELEMENT_ARRAY_BUFFER        0x8893
+#define GL_STREAM_DRAW                 0x88E0
+#define GL_STATIC_DRAW                 0x88E4
+#define GL_DYNAMIC_DRAW                0x88E8
 
-#define GL_FRAGMENT_SHADER             0x8B30u
-#define GL_VERTEX_SHADER               0x8B31u
-#define GL_COMPILE_STATUS              0x8B81u
-#define GL_LINK_STATUS                 0x8B82u
+#define GL_FRAGMENT_SHADER             0x8B30
+#define GL_VERTEX_SHADER               0x8B31
+#define GL_COMPILE_STATUS              0x8B81
+#define GL_LINK_STATUS                 0x8B82
 
 /* Function pointer types */
 typedef void (*PFN_glViewport)(GLint, GLint, GLsizei, GLsizei);
@@ -103,6 +103,8 @@ typedef void (*PFN_glStencilOp)(GLenum, GLenum, GLenum);
 typedef void (*PFN_glStencilMask)(GLuint);
 typedef void (*PFN_glGetIntegerv)(GLenum, GLint *);
 typedef const GLubyte *(*PFN_glGetString)(GLenum);
+typedef void (*PFN_glReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void *);
+typedef GLenum (*PFN_glGetError)(void);
 
 typedef void (*PFN_glGenTextures)(GLsizei, GLuint *);
 typedef void (*PFN_glDeleteTextures)(GLsizei, const GLuint *);
@@ -167,6 +169,8 @@ typedef struct arm64_gl_api {
     PFN_glStencilMask StencilMask;
     PFN_glGetIntegerv GetIntegerv;
     PFN_glGetString GetString;
+    PFN_glReadPixels ReadPixels;
+    PFN_glGetError GetError;
 
     PFN_glGenTextures GenTextures;
     PFN_glDeleteTextures DeleteTextures;

@@ -29,6 +29,9 @@ extern void model2_snd_host_audio_close(void);
 #include "thread_affinity.h"
 #ifdef I960_HOST_HAVE_GL
 #include "model2_gl.h"
+#if defined(__aarch64__) || defined(SEGAMOD2_GLES)
+#include "gpu_gles.h"
+#endif
 #endif
 #if defined(__APPLE__)
 #include <objc/message.h>
@@ -58,6 +61,7 @@ static SDL_Window *g_window;
 #ifdef I960_HOST_HAVE_GL
 static SDL_GLContext g_gl;
 static GLuint g_tile_tex;
+static int g_gles_ready;
 #else
 static SDL_Renderer *g_renderer;
 static SDL_Texture *g_texture;
@@ -402,6 +406,16 @@ int sys24_viewer_open(const char *title)
     /* Host timer paces frames; do not also block on display vsync. */
     SDL_GL_SetSwapInterval(0);
     (void)model2_gl_load();
+#if defined(__aarch64__) || defined(SEGAMOD2_GLES)
+    if (arm64_gl_load_all() == 1 && arm64_gpu_gles_init(win_w, win_h) == 0) {
+        g_gles_ready = 1;
+        lift_log( "lift: live viewer GLES2 composite enabled (%dx%d%s)\n",
+                win_w, win_h,
+                model2_host_aspect_is_widescreen() ? " aspect=16:9" : "");
+    } else {
+        lift_log("lift: GLES2 composite init FAILED — screen will stay black\n");
+    }
+#else
     lift_log( "lift: live viewer OpenGL composite enabled (%dx%d%s)\n",
             win_w, win_h,
             model2_host_aspect_is_widescreen() ? " aspect=16:9" : "");
@@ -412,6 +426,7 @@ int sys24_viewer_open(const char *title)
     /* ARGB8888 host words ↔ BGRA + REV (pen 0 / clear stay transparent over geo). */
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SYS24_FB_WIDTH, SYS24_FB_HEIGHT, 0, GL_BGRA,
                  GL_UNSIGNED_INT_8_8_8_8_REV, NULL);
+#endif
     (void)model2_geo_init_from_lift();
 #else
     g_renderer = SDL_CreateRenderer(
@@ -1028,6 +1043,7 @@ static void draw_tile_quad(int vx, int vy, int vw, int vh, int fullscreen_opaque
 
 static void geo_load_model2_projection(const model2_geo_projection_t *p, float znear)
 {
+    (void)znear;
     float width = (float)(p->viewport[2] - p->viewport[0]);
     float height = (float)(p->viewport[3] - p->viewport[1]);
     float xoff = 2.f * ((float)p->center[0] - (float)p->viewport[0]) / width - 1.f;
@@ -1041,15 +1057,70 @@ static void geo_load_model2_projection(const model2_geo_projection_t *p, float z
     m[8] = xoff;
     m[9] = yoff;
     /*
-     * Positive-Z infinite projection. MAME's Model 2 raster path clips the
-     * view frustum and polygons wholly behind Z=0, but has no GL-style far
-     * plane. A finite viewer far plane discarded valid track geometry.
+     * Full-range 1/z depth map (near -> -1, far -> +1). The previous
+     * "positive-Z infinite" trick (z_ndc = 1 - 2*znear/z, znear=0.01)
+     * squashed the entire scene into ~10 depth LSBs: road and cars tied
+     * on the depth test and objects appeared sunk into / punching through
+     * the road, worst on 16-bit Mali framebuffers.
      */
-    m[10] = 1.f;
-    m[11] = 1.f; /* clip W = positive Model 2 camera-space Z */
-    m[14] = -2.f * znear;
+    {
+        const float zn = 10.f;       /* nearest live camera-space z */
+        const float zf = 262144.f;   /* max camera-space z (15-bit coords) */
+        m[10] = (zf + zn) / (zf - zn);
+        m[11] = 1.f; /* clip W = positive Model 2 camera-space Z */
+        m[14] = -2.f * zf * zn / (zf - zn);
+    }
     glLoadMatrixf(m);
 }
+
+#if defined(__aarch64__) || defined(SEGAMOD2_GLES)
+/* Same window→NDC projection as geo_load_model2_projection, returned as a
+ * column-major 4x4 for the GLES2 composite (uniformMatrix4fv). */
+static void geo_build_model2_projection(const model2_geo_projection_t *p,
+                                        float znear, float m[16])
+{
+    (void)znear;
+    float width = (float)(p->viewport[2] - p->viewport[0]);
+    float height = (float)(p->viewport[3] - p->viewport[1]);
+    float xoff = 2.f * ((float)p->center[0] - (float)p->viewport[0]) / width - 1.f;
+    float yoff = 1.f
+               - 2.f * ((float)p->viewport[3] - (float)p->center[1]) / height;
+
+    memset(m, 0, sizeof(float) * 16u);
+    m[0] = 2.f / width;
+    m[5] = 2.f / height;
+    m[8] = xoff;
+    m[9] = yoff;
+    /* Full-range 1/z depth map; see geo_load_model2_projection above. */
+    {
+        const float zn = 10.f;
+        const float zf = 262144.f;
+        m[10] = (zf + zn) / (zf - zn);
+        m[11] = 1.f; /* clip W = positive Model 2 camera-space Z */
+        m[14] = -2.f * zf * zn / (zf - zn);
+    }
+}
+
+static void gles_draw_geo_layer(const model2_geo_projection_t *hwproj)
+{
+    const float *xyzuv = NULL;
+    const model2_geo_tri_mat_t *mats = NULL;
+    unsigned nverts = 0;
+    unsigned ntris = 0;
+    float m[16];
+
+    if (!hwproj)
+        return;
+    if (model2_geo_lock_textured(&xyzuv, &nverts, &mats, &ntris) != 0
+        || !xyzuv || ntris == 0u) {
+        model2_geo_unlock();
+        return;
+    }
+    geo_build_model2_projection(hwproj, 0.01f, m);
+    arm64_gpu_gles_draw_geo(xyzuv, nverts, mats, ntris, m, 0);
+    model2_geo_unlock();
+}
+#endif
 
 static void draw_geo_layer(int vx, int vy, int vw, int vh,
                            const model2_geo_projection_t *hwproj, int have_hwproj,
@@ -1493,6 +1564,26 @@ int sys24_viewer_flip(const u8 *tile_map, const u8 *char_ram, const u8 *palram)
              * Geo must never clear COLOR when overlaying bottom tiles.
              * Widescreen: tiles use hud rect; geo uses full geo rect.
              */
+#if defined(__aarch64__) || defined(SEGAMOD2_GLES)
+            if (g_gles_ready) {
+                /* GLES2 composite: tiles -> polygons -> priority tiles.
+                 * gpu_gles owns viewport/aspect + scissor inside the drawable. */
+                arm64_gpu_gles_set_aspect(
+                    model2_host_aspect_is_widescreen()
+                        ? ASPECT_FULLSCREEN
+                        : ASPECT_4_3_CENTERED);
+                arm64_gpu_gles_begin_frame(dw, dh);
+                if (opaque2d) {
+                    arm64_gpu_gles_draw_tiles(g_bitmap, 0);
+                } else {
+                    arm64_gpu_gles_draw_tiles(g_bitmap, 1);
+                    gles_draw_geo_layer(have_hwproj ? &hwproj : NULL);
+                    if (g_bitmap_pri)
+                        arm64_gpu_gles_draw_tiles(g_bitmap_pri, 1);
+                }
+                arm64_gpu_gles_end_frame();
+            } else
+#endif
             if (opaque2d) {
                 draw_tile_quad(hdx, hdy, hdww, hdhh, 1, 1, g_bitmap);
             } else {
@@ -1578,6 +1669,12 @@ void sys24_viewer_shutdown(void)
     sys24_viewer_record_stop();
 #ifdef I960_HOST_HAVE_SDL
 #ifdef I960_HOST_HAVE_GL
+#if defined(__aarch64__) || defined(SEGAMOD2_GLES)
+    if (g_gles_ready) {
+        arm64_gpu_gles_shutdown();
+        g_gles_ready = 0;
+    }
+#endif
     if (g_tile_tex) {
         glDeleteTextures(1, &g_tile_tex);
         g_tile_tex = 0;

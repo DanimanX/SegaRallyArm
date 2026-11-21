@@ -30,6 +30,8 @@ int arm64_gl_load_all(void)
     LOAD_PROC(StencilMask, glStencilMask);
     LOAD_PROC(GetIntegerv, glGetIntegerv);
     LOAD_PROC(GetString, glGetString);
+    LOAD_PROC(ReadPixels, glReadPixels);
+    LOAD_PROC(GetError, glGetError);
 
     LOAD_PROC(GenTextures, glGenTextures);
     LOAD_PROC(DeleteTextures, glDeleteTextures);

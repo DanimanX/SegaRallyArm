@@ -15,7 +15,7 @@ SDL_CFLAGS=$(pkg-config --cflags sdl2 2>/dev/null || echo "-I/usr/include/SDL2")
 SDL_LIBS=$(pkg-config --libs sdl2 2>/dev/null || echo "-lSDL2")
 
 COMMON_DEFS="-D_GNU_SOURCE -DGL_GLEXT_PROTOTYPES=1 -DHOST_COMPAT_HAVE_CLOCK_GETTIME \
-  -DI960_HOST_HAVE_SDL -DSDL_MAIN_HANDLED -DI960_HOST_HAVE_GL"
+  -DI960_HOST_HAVE_SDL -DSDL_MAIN_HANDLED -DI960_HOST_HAVE_GL -DSEGAMOD2_GLES"
 
 INC_FLAGS="-I$PWD/src -I$PWD/include -I$PWD/lib/model2/include -I$PWD/lib/model2/host \
   -I$PWD/lib/model2/geo/include -I$PWD/lib/model2/hw/include -I$PWD/lib/model2/tgp/include \

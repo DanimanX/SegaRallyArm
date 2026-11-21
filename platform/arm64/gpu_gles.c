@@ -5,6 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
+
+#ifndef GL_DEPTH_BITS
+#define GL_DEPTH_BITS 0x0D58
+#endif
+#ifndef GL_STENCIL_BITS
+#define GL_STENCIL_BITS 0x0D57
+#endif
 
 #define SYS24_W 496
 #define SYS24_H 384
@@ -20,6 +28,22 @@ typedef struct {
 } lut_entry_t;
 
 static int g_ready = 0;
+
+/* Performance stats + optional frame snapshots (SEGAMOD2_SNAP=<prefix>,
+ * SEGAMOD2_SNAP_N=<frames>, default 240) for on-device diagnosis. */
+static uint64_t g_frames = 0, g_geo_calls = 0, g_tile_uploads = 0;
+static uint64_t g_sheet_reups = 0, g_lut_built = 0, g_lut_wipes = 0;
+static uint64_t g_win_ms = 0;
+static struct timespec g_stat_t;
+static char g_snap_prefix[256];
+static unsigned g_snap_n = 240, g_snap_tick = 0;
+
+static uint64_t mono_ms(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000ull + (uint64_t)t.tv_nsec / 1000000ull;
+}
 static arm64_aspect_t g_aspect = ASPECT_4_3_CENTERED;
 static int g_win_w = 720;
 static int g_win_h = 480;
@@ -296,6 +320,29 @@ int arm64_gpu_gles_init(int win_w, int win_h)
 
     g_tile_rgba_buf = (uint32_t *)malloc(SYS24_W * SYS24_H * sizeof(uint32_t));
 
+    {
+        const char *ver = (const char *)arm64_gl.GetString(GL_VERSION);
+        const char *ren = (const char *)arm64_gl.GetString(GL_RENDERER);
+        GLint dbits = 0, sbits = 0;
+        arm64_gl.GetIntegerv(GL_DEPTH_BITS, &dbits);
+        arm64_gl.GetIntegerv(GL_STENCIL_BITS, &sbits);
+        printf("gpu_gles: GL=%s RENDERER=%s DEPTH=%d STENCIL=%d (%dx%d)\n",
+               ver ? ver : "?", ren ? ren : "?", (int)dbits, (int)sbits, win_w, win_h);
+        if (dbits < 24)
+            printf("gpu_gles: WARNING shallow depth buffer (%d bits)\n", (int)dbits);
+    }
+    {
+        const char *snap = getenv("SEGAMOD2_SNAP");
+        const char *snapn = getenv("SEGAMOD2_SNAP_N");
+        if (snap && *snap) {
+            snprintf(g_snap_prefix, sizeof(g_snap_prefix), "%s", snap);
+            if (snapn) g_snap_n = (unsigned)atoi(snapn);
+            if (g_snap_n == 0u) g_snap_n = 1u;
+            printf("gpu_gles: snapshots -> %s_*.ppm every %u frames\n",
+                   g_snap_prefix, g_snap_n);
+        }
+    }
+    clock_gettime(CLOCK_MONOTONIC, &g_stat_t);
     g_ready = 1;
     printf("gpu_gles: initialized Mali-G31 GLES 2.0 pipeline (%dx%d)\n", win_w, win_h);
     return 0;
@@ -351,8 +398,12 @@ static void calculate_viewport(int win_w, int win_h, int *vx, int *vy, int *vw, 
     }
 }
 
+static uint64_t g_submit_t0 = 0, g_render_ms = 0;
+static uint64_t g_window_t0 = 0;
+
 void arm64_gpu_gles_begin_frame(int display_w, int display_h)
 {
+    g_submit_t0 = mono_ms();
     g_win_w = display_w;
     g_win_h = display_h;
 
@@ -368,31 +419,122 @@ void arm64_gpu_gles_begin_frame(int display_w, int display_h)
     arm64_gl.Enable(GL_SCISSOR_TEST);
 }
 
+static void write_snapshot(void)
+{
+    char path[320];
+    FILE *f;
+    unsigned w = (unsigned)g_win_w, h = (unsigned)g_win_h;
+    unsigned char *buf = (unsigned char *)malloc((size_t)w * (size_t)h * 4u);
+    unsigned y;
+
+    if (!buf || !arm64_gl.ReadPixels) return;
+    if (arm64_gl.GetError) while (arm64_gl.GetError()) {}
+    arm64_gl.ReadPixels(0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, buf);
+    snprintf(path, sizeof(path), "%s_%05u.ppm", g_snap_prefix,
+             (unsigned)(g_snap_tick / g_snap_n));
+    f = fopen(path, "wb");
+    if (f) {
+        fprintf(f, "P6\n%u %u\n255\n", w, h);
+        for (y = h; y-- > 0u;) {           /* GL rows bottom-up -> PPM top-down */
+            const unsigned char *row = buf + (size_t)y * (size_t)w * 4u;
+            unsigned x;
+            for (x = 0; x < w; x++)
+                fputc(row[x * 4u + 0u], f), fputc(row[x * 4u + 1u], f),
+                      fputc(row[x * 4u + 2u], f);
+        }
+        fclose(f);
+        printf("gpu_gles: snapshot %s\n", path);
+        fflush(stdout);
+    }
+    free(buf);
+}
+
 void arm64_gpu_gles_end_frame(void)
 {
+    uint64_t now;
+
     arm64_gl.Disable(GL_SCISSOR_TEST);
+
+    g_frames++;
+    g_render_ms += mono_ms() - g_submit_t0;
+
+    if (g_snap_prefix[0] != '\0') {
+        g_snap_tick++;
+        if (g_snap_tick % g_snap_n == 0u)
+            write_snapshot();
+    }
+
+    now = mono_ms();
+    if (g_window_t0 == 0u) { g_window_t0 = now; return; }
+    if (now - g_window_t0 >= 2000ull) {
+        printf("gpu_gles stats: fps=%.1f submit_ms=%.2f draws/s=%llu tiles_up/s=%llu"
+               " sheet_reups=%llu lut_entries=%d lut_built=%llu lut_wipes=%llu\n",
+               (double)g_frames * 1000.0 / (double)(now - g_window_t0),
+               (double)g_render_ms / (double)g_frames,
+               (unsigned long long)(g_geo_calls * 1000ull / (now - g_window_t0)),
+               (unsigned long long)(g_tile_uploads * 1000ull / (now - g_window_t0)),
+               (unsigned long long)g_sheet_reups, g_lut_n,
+               (unsigned long long)g_lut_built, (unsigned long long)g_lut_wipes);
+        fflush(stdout);
+        g_frames = 0; g_render_ms = 0; g_geo_calls = 0; g_tile_uploads = 0;
+        g_window_t0 = now;
+    }
 }
 
 void arm64_gpu_gles_draw_tiles(const uint32_t *src_argb, int transparent)
 {
+    static const uint32_t *src_last[4];
+    static uint32_t *src_saved[4];
+    static int src_valid[4];
+    int slot = -1, i, same = 0;
+    const size_t src_bytes = (size_t)SYS24_W * (size_t)SYS24_H * sizeof(uint32_t);
+
     if (!g_ready || !src_argb) return;
 
-    /* Convert ARGB to RGBA with alpha punch for transparency */
-    for (int i = 0; i < SYS24_W * SYS24_H; i++) {
-        uint32_t p = src_argb[i];
-        uint8_t a = (p >> 24) & 0xFF;
-        uint8_t r = (p >> 16) & 0xFF;
-        uint8_t g = (p >> 8) & 0xFF;
-        uint8_t b = p & 0xFF;
-        if (transparent && (p & 0x00FFFFFF) == 0) {
-            a = 0;
-        }
-        g_tile_rgba_buf[i] = ((uint32_t)a << 24) | ((uint32_t)b << 16) | ((uint32_t)g << 8) | r;
+    /* Stable per-layer slots (primary, pri, ...): skip convert+upload when the
+     * Sys24 framebuffer content is identical to the previous frame. */
+    for (i = 0; i < 4; i++)
+        if (src_last[i] == src_argb) { slot = i; break; }
+    if (slot < 0) {
+        for (i = 0; i < 4; i++)
+            if (!src_last[i]) { slot = i; break; }
+        if (slot < 0) slot = 0;
+        src_last[slot] = src_argb;
+        src_valid[slot] = 0;
+        if (!src_saved[slot]) src_saved[slot] = (uint32_t *)malloc(src_bytes);
     }
 
+    if (src_valid[slot] && src_saved[slot] &&
+        memcmp(src_saved[slot], src_argb, src_bytes) == 0)
+        same = 1;
+
+    if (!same) {
+        /* Convert ARGB to RGBA with alpha punch for transparency */
+        for (int k = 0; k < SYS24_W * SYS24_H; k++) {
+            uint32_t p = src_argb[k];
+            uint8_t a = (p >> 24) & 0xFF;
+            uint8_t r = (p >> 16) & 0xFF;
+            uint8_t g = (p >> 8) & 0xFF;
+            uint8_t b = p & 0xFF;
+            if (transparent && (p & 0x00FFFFFF) == 0) {
+                a = 0;
+            }
+            g_tile_rgba_buf[k] = ((uint32_t)a << 24) | ((uint32_t)b << 16) | ((uint32_t)g << 8) | r;
+        }
+        if (src_saved[slot]) {
+            memcpy(src_saved[slot], src_argb, src_bytes);
+            src_valid[slot] = 1;
+        }
+
+        arm64_gl.ActiveTexture(GL_TEXTURE0);
+        arm64_gl.BindTexture(GL_TEXTURE_2D, g_tile_tex);
+        arm64_gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SYS24_W, SYS24_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_tile_rgba_buf);
+        g_tile_uploads++;
+    }
+
+    /* geo batching leaves TEXTURE0 bound to a sheet; re-bind the tile tex. */
     arm64_gl.ActiveTexture(GL_TEXTURE0);
     arm64_gl.BindTexture(GL_TEXTURE_2D, g_tile_tex);
-    arm64_gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SYS24_W, SYS24_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_tile_rgba_buf);
 
     arm64_gl.UseProgram(g_tile_prog);
     arm64_gl.Uniform1i(g_u_tile_tex, 0);
@@ -434,6 +576,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     if (psig != g_lut_sig) {
         lut_cache_clear();
         g_lut_sig = psig;
+        g_lut_wipes++;
     }
 
     arm64_gl.Enable(GL_DEPTH_TEST);
@@ -481,6 +624,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
                            (m->flags & MODEL2_GEO_TEX_MIRROR_Y) ? 1.0f : 0.0f);
 
         arm64_gl.DrawArrays(GL_TRIANGLES, start_tri * 3, batch_tris * 3);
+        g_geo_calls++;
     }
 
     arm64_gl.DisableVertexAttribArray(g_a_pos);
