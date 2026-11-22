@@ -1602,7 +1602,16 @@ int sys24_viewer_flip(const u8 *tile_map, const u8 *char_ram, const u8 *palram)
             g_tile_tex_dirty = 0;
             /* Capture geo letterbox (includes side pillars in 16:9). */
             viewer_record_from_gl_letterbox(gvx, gvy, gvw, gvh);
+#if defined(__aarch64__) || defined(SEGAMOD2_GLES)
+            {
+                uint32_t sw0 = SDL_GetTicks();
+                SDL_GL_SwapWindow(g_window);
+                if (g_gles_ready)
+                    arm64_gpu_gles_note_swap((uint64_t)(SDL_GetTicks() - sw0));
+            }
+#else
             SDL_GL_SwapWindow(g_window);
+#endif
         }
 #else
         {

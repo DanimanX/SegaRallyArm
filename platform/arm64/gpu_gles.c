@@ -48,7 +48,7 @@ static int g_ready = 0;
  * SEGAMOD2_SNAP_N=<frames>, default 240) for on-device diagnosis. */
 static uint64_t g_frames = 0, g_geo_calls = 0, g_tile_uploads = 0;
 static uint64_t g_sheet_reups = 0, g_lut_built = 0, g_lut_wipes = 0;
-static uint64_t g_render_ms = 0, g_emu_ms = 0, g_submit_t0 = 0, g_last_end_t = 0, g_window_t0 = 0;
+static uint64_t g_render_ms = 0, g_emu_ms = 0, g_swap_ms = 0, g_submit_t0 = 0, g_last_end_t = 0, g_window_t0 = 0;
 static char g_snap_prefix[256];
 static unsigned g_snap_n = 240, g_snap_tick = 0;
 
@@ -735,6 +735,11 @@ static void write_snapshot(void)
     free(buf);
 }
 
+void arm64_gpu_gles_note_swap(uint64_t ms)
+{
+    g_swap_ms += ms;
+}
+
 void arm64_gpu_gles_end_frame(void)
 {
     uint64_t now;
@@ -782,17 +787,20 @@ void arm64_gpu_gles_end_frame(void)
 
     if (g_window_t0 == 0u) { g_window_t0 = now; return; }
     if (now - g_window_t0 >= 2000ull) {
-        printf("gpu_gles stats: fps=%.1f submit_ms=%.2f emu_ms=%.2f draws/s=%llu tiles_up/s=%llu"
+        double inv_f = 1.0 / (double)g_frames;
+        double emu_only = ((double)g_emu_ms - (double)g_swap_ms) * inv_f;
+        printf("gpu_gles stats: fps=%.1f submit_ms=%.2f swap_ms=%.2f cpu_ms=%.2f draws/s=%llu tiles_up/s=%llu"
                " sheet_reups=%llu lut_entries=%u lut_built=%llu lut_wipes=%llu\n",
                (double)g_frames * 1000.0 / (double)(now - g_window_t0),
-               (double)g_render_ms / (double)g_frames,
-               (double)g_emu_ms / (double)g_frames,
+               (double)g_render_ms * inv_f,
+               (double)g_swap_ms * inv_f,
+               emu_only,
                (unsigned long long)(g_geo_calls * 1000ull / (now - g_window_t0)),
                (unsigned long long)(g_tile_uploads * 1000ull / (now - g_window_t0)),
                (unsigned long long)g_sheet_reups, g_lut_n,
                (unsigned long long)g_lut_built, (unsigned long long)g_lut_wipes);
         fflush(stdout);
-        g_frames = 0; g_render_ms = 0; g_emu_ms = 0; g_geo_calls = 0; g_tile_uploads = 0;
+        g_frames = 0; g_render_ms = 0; g_emu_ms = 0; g_swap_ms = 0; g_geo_calls = 0; g_tile_uploads = 0;
         g_window_t0 = now;
     }
 }

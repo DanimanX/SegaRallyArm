@@ -25,6 +25,7 @@ arm64_aspect_t arm64_gpu_gles_get_aspect(void);
 
 void arm64_gpu_gles_begin_frame(int display_w, int display_h);
 void arm64_gpu_gles_end_frame(void);
+void arm64_gpu_gles_note_swap(uint64_t ms);
 
 /* Upload and render System 24 2D Tilemap overlay */
 void arm64_gpu_gles_draw_tiles(const uint32_t *src_argb, int transparent);
