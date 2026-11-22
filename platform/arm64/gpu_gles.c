@@ -917,7 +917,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     upload_sheets();
 
     uint32_t psig = model2_palette_state_sig();
-    if (psig != g_lut_sig || g_lut_n > 1400u) {
+    if (psig != g_lut_sig || g_lut_n > 1000u) {
         g_lut_n = 0;
         g_lut_clock = 0;
         g_lut_dirty_min = -1;
@@ -1159,7 +1159,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     if (world_end > opaque_tex_end) {
         arm64_gl.Disable(GL_STENCIL_TEST);
         arm64_gl.Enable(GL_DEPTH_TEST);
-        arm64_gl.DepthMask(GL_TRUE);
+        arm64_gl.DepthMask(GL_FALSE);
         arm64_gl.DepthFunc(GL_LEQUAL);
         BIND_TEX_PROG(1);
         arm64_gl.DrawElements(GL_TRIANGLES, (GLsizei)((world_end - opaque_tex_end) * 3u),
