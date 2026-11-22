@@ -951,6 +951,10 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
                 have_srgb = 1;
             }
             for (unsigned k = 0; k < 3u; k++) {
+                const float *sv = xyzuv + (base + k) * 5u;
+                g_tex_verts[base + k].x = sv[0];
+                g_tex_verts[base + k].y = sv[1];
+                g_tex_verts[base + k].z = sv[2];
                 g_solid_rgb[(base + k) * 3u + 0u] = solid_rgb[0];
                 g_solid_rgb[(base + k) * 3u + 1u] = solid_rgb[1];
                 g_solid_rgb[(base + k) * 3u + 2u] = solid_rgb[2];
@@ -1077,18 +1081,12 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
         g_geo_calls++;
     }
 
-    /* --- Pass B: opaque-tex fillmap + depth write (1 draw call) --- */
+    /* --- Pass B: opaque-tex depth write (hardware Z-buffer, no stencil occlusion) --- */
     if (opaque_tex_end > solid_end) {
         arm64_gl.Enable(GL_DEPTH_TEST);
         arm64_gl.DepthMask(GL_TRUE);
         arm64_gl.DepthFunc(GL_LEQUAL);
-        if (use_stencil) {
-            arm64_gl.Enable(GL_STENCIL_TEST);
-            arm64_gl.StencilFunc(GL_EQUAL, 0, 0xff);
-            arm64_gl.StencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-        } else {
-            arm64_gl.Disable(GL_STENCIL_TEST);
-        }
+        arm64_gl.Disable(GL_STENCIL_TEST);
         BIND_TEX_PROG();
         arm64_gl.DrawElements(GL_TRIANGLES, (GLsizei)((opaque_tex_end - solid_end) * 3u),
                               GL_UNSIGNED_SHORT, (void *)(uintptr_t)(solid_end * 3u * sizeof(uint16_t)));

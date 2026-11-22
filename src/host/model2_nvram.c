@@ -155,6 +155,12 @@ void model2_nvram_apply_options(void)
     i960_st_u16(I960_WORKRAM, 0x20202a, 0, g_nvram.coin_price);
     i960_st_u16(I960_WORKRAM, 0x20202c, 0, g_nvram.coin_mech);
     i960_st_u16(I960_WORKRAM, 0x20202e, 0, g_nvram.coin_limit);
+    /* coin_option_validate skips coin_option_defaults when 0x202028..2e are
+     * non-zero, so seed chute 0/1 coin values (0x202030/32) if still 0. */
+    if (i960_ld_u16(I960_WORKRAM, 0x202030, 0) == 0)
+        i960_st_u16(I960_WORKRAM, 0x202030, 0, 1);
+    if (i960_ld_u16(I960_WORKRAM, 0x202032, 0) == 0)
+        i960_st_u16(I960_WORKRAM, 0x202032, 0, 1);
     if (g_nvram.mode_word == 36u) {
         i960_st_u16(I960_WORKRAM, 0x202010, 0, g_nvram.mode_cksum);
         i960_st_u16(I960_WORKRAM, 0x202012, 0, g_nvram.mode_word);
