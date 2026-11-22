@@ -48,6 +48,7 @@ typedef ptrdiff_t      GLsizeiptr;
 #define GL_STENCIL_TEST                0x0B90
 #define GL_BLEND                       0x0BE2
 #define GL_SCISSOR_TEST                0x0C11
+#define GL_POLYGON_OFFSET_FILL         0x8037
 #define GL_UNPACK_ALIGNMENT            0x0CF5
 #define GL_TEXTURE_2D                  0x0DE1
 
@@ -106,6 +107,7 @@ typedef void (*PFN_glEnable)(GLenum);
 typedef void (*PFN_glDisable)(GLenum);
 typedef void (*PFN_glDepthFunc)(GLenum);
 typedef void (*PFN_glDepthMask)(GLboolean);
+typedef void (*PFN_glPolygonOffset)(GLfloat, GLfloat);
 typedef void (*PFN_glBlendFunc)(GLenum, GLenum);
 typedef void (*PFN_glCullFace)(GLenum);
 typedef void (*PFN_glColorMask)(GLboolean, GLboolean, GLboolean, GLboolean);
@@ -184,6 +186,7 @@ typedef struct arm64_gl_api {
     PFN_glDisable Disable;
     PFN_glDepthFunc DepthFunc;
     PFN_glDepthMask DepthMask;
+    PFN_glPolygonOffset PolygonOffset;
     PFN_glBlendFunc BlendFunc;
     PFN_glCullFace CullFace;
     PFN_glColorMask ColorMask;

@@ -23,6 +23,7 @@ int arm64_gl_load_all(void)
     LOAD_PROC(Disable, glDisable);
     LOAD_PROC(DepthFunc, glDepthFunc);
     LOAD_PROC(DepthMask, glDepthMask);
+    LOAD_PROC(PolygonOffset, glPolygonOffset);
     LOAD_PROC(BlendFunc, glBlendFunc);
     LOAD_PROC(CullFace, glCullFace);
     LOAD_PROC(ColorMask, glColorMask);

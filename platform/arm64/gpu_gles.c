@@ -102,6 +102,7 @@ static uint32_t *g_tile_rgba_buf = NULL;
 
 /* Offscreen FBO fallback when default framebuffer has DEPTH=0 */
 static int g_need_fbo = 0;
+static int g_default_has_stencil = 0;
 static int g_fbo_has_stencil = 0;
 static GLuint g_fbo = 0;
 static GLuint g_fbo_color_tex = 0;
@@ -580,6 +581,7 @@ int arm64_gpu_gles_init(int win_w, int win_h)
         GLint dbits = 0, sbits = 0;
         arm64_gl.GetIntegerv(GL_DEPTH_BITS, &dbits);
         arm64_gl.GetIntegerv(GL_STENCIL_BITS, &sbits);
+        g_default_has_stencil = (sbits > 0) ? 1 : 0;
         printf("gpu_gles: GL=%s RENDERER=%s DEPTH=%d STENCIL=%d (%dx%d)\n",
                ver ? ver : "?", ren ? ren : "?", (int)dbits, (int)sbits, win_w, win_h);
         if (dbits == 0) {
@@ -1147,12 +1149,20 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
         g_geo_calls++;
     }
 
+    int use_stencil = (g_need_fbo && g_fbo) ? g_fbo_has_stencil : g_default_has_stencil;
+
     /* --- Pass B: opaque-tex depth write (no discard -> Mali Early-Z + HSR) --- */
     if (opaque_tex_end > solid_end) {
         arm64_gl.Enable(GL_DEPTH_TEST);
         arm64_gl.DepthMask(GL_TRUE);
         arm64_gl.DepthFunc(GL_LEQUAL);
-        arm64_gl.Disable(GL_STENCIL_TEST);
+        if (use_stencil && arm64_gl.StencilFunc && arm64_gl.StencilOp) {
+            arm64_gl.Enable(GL_STENCIL_TEST);
+            arm64_gl.StencilFunc(GL_EQUAL, 0, 0xffu);
+            arm64_gl.StencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+        } else {
+            arm64_gl.Disable(GL_STENCIL_TEST);
+        }
         BIND_TEX_PROG(0);
         arm64_gl.DrawElements(GL_TRIANGLES, (GLsizei)((opaque_tex_end - solid_end) * 3u),
                               GL_UNSIGNED_SHORT, (void *)(uintptr_t)(solid_end * 3u * sizeof(uint16_t)));
@@ -1161,13 +1171,27 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
 
     /* --- Pass C: cutouts + checker with hardware Z-buffer (1 draw call) --- */
     if (world_end > opaque_tex_end) {
-        arm64_gl.Disable(GL_STENCIL_TEST);
+        if (use_stencil && arm64_gl.StencilFunc && arm64_gl.StencilOp) {
+            arm64_gl.Clear(GL_STENCIL_BUFFER_BIT);
+            arm64_gl.Enable(GL_STENCIL_TEST);
+            arm64_gl.StencilFunc(GL_EQUAL, 0, 0xffu);
+            arm64_gl.StencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+        } else {
+            arm64_gl.Disable(GL_STENCIL_TEST);
+        }
+        if (arm64_gl.PolygonOffset) {
+            arm64_gl.Enable(GL_POLYGON_OFFSET_FILL);
+            arm64_gl.PolygonOffset(-1.0f, -1.0f);
+        }
         arm64_gl.Enable(GL_DEPTH_TEST);
         arm64_gl.DepthMask(GL_FALSE);
         arm64_gl.DepthFunc(GL_LEQUAL);
         BIND_TEX_PROG(1);
         arm64_gl.DrawElements(GL_TRIANGLES, (GLsizei)((world_end - opaque_tex_end) * 3u),
                               GL_UNSIGNED_SHORT, (void *)(uintptr_t)(opaque_tex_end * 3u * sizeof(uint16_t)));
+        if (arm64_gl.PolygonOffset) {
+            arm64_gl.Disable(GL_POLYGON_OFFSET_FILL);
+        }
         g_geo_calls++;
     }
 
