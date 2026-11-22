@@ -366,13 +366,38 @@ int sys24_viewer_open(const char *title)
     if (fs_env && fs_env[0] == '1') {
         win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     }
-    g_window = SDL_CreateWindow(
-        VIEWER_TITLE,
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        win_w,
-        win_h,
-        win_flags);
+    {
+        static const int gl_cfg[4][2] = {
+            { 24, 8 }, { 16, 8 }, { 24, 0 }, { 16, 0 }
+        };
+        int ci;
+        for (ci = 0; ci < 4; ci++) {
+            int got_depth = 0;
+            SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, gl_cfg[ci][0]);
+            SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, gl_cfg[ci][1]);
+            g_window = SDL_CreateWindow(
+                VIEWER_TITLE,
+                SDL_WINDOWPOS_CENTERED,
+                SDL_WINDOWPOS_CENTERED,
+                win_w,
+                win_h,
+                win_flags);
+            if (!g_window) continue;
+            g_gl = SDL_GL_CreateContext(g_window);
+            if (!g_gl) {
+                SDL_DestroyWindow(g_window);
+                g_window = NULL;
+                continue;
+            }
+            SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &got_depth);
+            if (got_depth > 0 || ci == 3)
+                break;
+            SDL_GL_DeleteContext(g_gl);
+            SDL_DestroyWindow(g_window);
+            g_gl = NULL;
+            g_window = NULL;
+        }
+    }
 #else
     int win_flags = SDL_WINDOW_RESIZABLE;
     const char *fs_env = getenv("SEGAMOD2_FULLSCREEN");
@@ -395,7 +420,6 @@ int sys24_viewer_open(const char *title)
     }
 
 #ifdef I960_HOST_HAVE_GL
-    g_gl = SDL_GL_CreateContext(g_window);
     if (!g_gl) {
         fprintf(stderr, "lift: SDL_GL_CreateContext failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(g_window);
