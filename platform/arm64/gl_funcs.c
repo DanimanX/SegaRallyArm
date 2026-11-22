@@ -79,6 +79,17 @@ int arm64_gl_load_all(void)
     LOAD_PROC(DrawArrays, glDrawArrays);
     LOAD_PROC(DrawElements, glDrawElements);
 
+    LOAD_PROC(GenFramebuffers, glGenFramebuffers);
+    LOAD_PROC(DeleteFramebuffers, glDeleteFramebuffers);
+    LOAD_PROC(BindFramebuffer, glBindFramebuffer);
+    LOAD_PROC(FramebufferTexture2D, glFramebufferTexture2D);
+    LOAD_PROC(GenRenderbuffers, glGenRenderbuffers);
+    LOAD_PROC(DeleteRenderbuffers, glDeleteRenderbuffers);
+    LOAD_PROC(BindRenderbuffer, glBindRenderbuffer);
+    LOAD_PROC(RenderbufferStorage, glRenderbufferStorage);
+    LOAD_PROC(FramebufferRenderbuffer, glFramebufferRenderbuffer);
+    LOAD_PROC(CheckFramebufferStatus, glCheckFramebufferStatus);
+
 #undef LOAD_PROC
 
     loaded = 1;

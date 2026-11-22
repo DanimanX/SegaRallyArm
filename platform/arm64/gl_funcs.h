@@ -86,6 +86,16 @@ typedef ptrdiff_t      GLsizeiptr;
 #define GL_COMPILE_STATUS              0x8B81
 #define GL_LINK_STATUS                 0x8B82
 
+#define GL_TEXTURE2                    0x84C2
+#define GL_FRAMEBUFFER                 0x8D40
+#define GL_RENDERBUFFER                0x8D41
+#define GL_COLOR_ATTACHMENT0           0x8CE0
+#define GL_DEPTH_ATTACHMENT            0x8D00
+#define GL_STENCIL_ATTACHMENT          0x8D20
+#define GL_DEPTH_COMPONENT16           0x81A5
+#define GL_DEPTH24_STENCIL8_OES        0x88F0
+#define GL_FRAMEBUFFER_COMPLETE        0x8CD5
+
 /* Function pointer types */
 typedef void (*PFN_glViewport)(GLint, GLint, GLsizei, GLsizei);
 typedef void (*PFN_glScissor)(GLint, GLint, GLsizei, GLsizei);
@@ -151,6 +161,17 @@ typedef void (*PFN_glVertexAttribPointer)(GLuint, GLint, GLenum, GLboolean, GLsi
 
 typedef void (*PFN_glDrawArrays)(GLenum, GLint, GLsizei);
 typedef void (*PFN_glDrawElements)(GLenum, GLsizei, GLenum, const void *);
+
+typedef void (*PFN_glGenFramebuffers)(GLsizei, GLuint *);
+typedef void (*PFN_glDeleteFramebuffers)(GLsizei, const GLuint *);
+typedef void (*PFN_glBindFramebuffer)(GLenum, GLuint);
+typedef void (*PFN_glFramebufferTexture2D)(GLenum, GLenum, GLenum, GLuint, GLint);
+typedef void (*PFN_glGenRenderbuffers)(GLsizei, GLuint *);
+typedef void (*PFN_glDeleteRenderbuffers)(GLsizei, const GLuint *);
+typedef void (*PFN_glBindRenderbuffer)(GLenum, GLuint);
+typedef void (*PFN_glRenderbufferStorage)(GLenum, GLenum, GLsizei, GLsizei);
+typedef void (*PFN_glFramebufferRenderbuffer)(GLenum, GLenum, GLenum, GLuint);
+typedef GLenum (*PFN_glCheckFramebufferStatus)(GLenum);
 
 /* Global function table */
 typedef struct arm64_gl_api {
@@ -218,6 +239,17 @@ typedef struct arm64_gl_api {
 
     PFN_glDrawArrays DrawArrays;
     PFN_glDrawElements DrawElements;
+
+    PFN_glGenFramebuffers GenFramebuffers;
+    PFN_glDeleteFramebuffers DeleteFramebuffers;
+    PFN_glBindFramebuffer BindFramebuffer;
+    PFN_glFramebufferTexture2D FramebufferTexture2D;
+    PFN_glGenRenderbuffers GenRenderbuffers;
+    PFN_glDeleteRenderbuffers DeleteRenderbuffers;
+    PFN_glBindRenderbuffer BindRenderbuffer;
+    PFN_glRenderbufferStorage RenderbufferStorage;
+    PFN_glFramebufferRenderbuffer FramebufferRenderbuffer;
+    PFN_glCheckFramebufferStatus CheckFramebufferStatus;
 } arm64_gl_api_t;
 
 extern arm64_gl_api_t arm64_gl;
