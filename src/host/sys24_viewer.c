@@ -844,6 +844,7 @@ int sys24_viewer_poll_events(void)
              * Q/[ down, E/] up; keypad 0=N, 1–4 direct. Latch, not tap.
              */
             if (pressed && !ev.key.repeat) {
+                int shift_changed = 1;
                 if (ev.key.keysym.sym == SDLK_q
                     || ev.key.keysym.sym == SDLK_LEFTBRACKET) {
                     if (g_shifter > 0u)
@@ -862,6 +863,10 @@ int sys24_viewer_poll_events(void)
                     g_shifter = 3u;
                 else if (ev.key.keysym.sym == SDLK_KP_4)
                     g_shifter = 4u;
+                else
+                    shift_changed = 0;
+                if (shift_changed)
+                    model2_io_shifter_set(g_shifter);
             }
         }
         if (ev.type == SDL_KEYDOWN) {
@@ -897,7 +902,6 @@ int sys24_viewer_poll_events(void)
 
     /* --practice: poll can smash analog after skip_tick; re-hold Delta AT. */
     i960_host_skip_practice_hold_inputs();
-    model2_io_shifter_set(g_shifter);
     /*
      * After GO: hold ←/→ wheel, ↑/W/A throttle, ↓/S/Z brake. io_poll copies
      * the mux into 0x202050/51/52; fov_scale / matrix_prep / control_byte

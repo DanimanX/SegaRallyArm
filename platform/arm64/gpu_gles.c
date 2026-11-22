@@ -94,7 +94,8 @@ static GLint g_a_tile_uv = -1;
 
 /* Textures */
 static GLuint g_sheet_tex[2] = {0, 0};
-static GLuint g_lut_atlas_tex = 0;
+static GLuint g_lut_atlas_tex[2] = {0, 0};
+static int g_lut_flip = 0;
 static GLuint g_tile_tex[TILE_SLOTS] = {0, 0, 0, 0};
 static int g_tile_tex_init[TILE_SLOTS] = {0, 0, 0, 0};
 static uint32_t *g_tile_rgba_buf = NULL;
@@ -245,7 +246,7 @@ static void lut_atlas_flush(void)
     int y = g_lut_dirty_min;
     int h = g_lut_dirty_max - g_lut_dirty_min + 1;
     arm64_gl.ActiveTexture(GL_TEXTURE1);
-    arm64_gl.BindTexture(GL_TEXTURE_2D, g_lut_atlas_tex);
+    arm64_gl.BindTexture(GL_TEXTURE_2D, g_lut_atlas_tex[g_lut_flip]);
     arm64_gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
     arm64_gl.TexSubImage2D(GL_TEXTURE_2D, 0, 0, y, 16, h,
                            GL_RGBA, GL_UNSIGNED_BYTE, &g_lut_atlas_cpu[(size_t)y * 16u * 4u]);
@@ -525,14 +526,16 @@ int arm64_gpu_gles_init(int win_w, int win_h)
 
     /* Allocate textures */
     arm64_gl.GenTextures(2, g_sheet_tex);
-    arm64_gl.GenTextures(1, &g_lut_atlas_tex);
-    arm64_gl.BindTexture(GL_TEXTURE_2D, g_lut_atlas_tex);
-    arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    arm64_gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 16, LUT_CACHE_CAP, 0,
-                        GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    arm64_gl.GenTextures(2, g_lut_atlas_tex);
+    for (int i = 0; i < 2; i++) {
+        arm64_gl.BindTexture(GL_TEXTURE_2D, g_lut_atlas_tex[i]);
+        arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        arm64_gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 16, LUT_CACHE_CAP, 0,
+                            GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    }
 
     arm64_gl.GenTextures(TILE_SLOTS, g_tile_tex);
     for (int i = 0; i < TILE_SLOTS; i++) {
@@ -609,7 +612,7 @@ void arm64_gpu_gles_shutdown(void)
     if (g_solid_prog) arm64_gl.DeleteProgram(g_solid_prog);
     if (g_tile_prog) arm64_gl.DeleteProgram(g_tile_prog);
     if (g_sheet_tex[0]) arm64_gl.DeleteTextures(2, g_sheet_tex);
-    if (g_lut_atlas_tex) arm64_gl.DeleteTextures(1, &g_lut_atlas_tex);
+    if (g_lut_atlas_tex[0]) arm64_gl.DeleteTextures(2, g_lut_atlas_tex);
     if (g_tile_tex[0]) arm64_gl.DeleteTextures(TILE_SLOTS, g_tile_tex);
     if (g_fbo) arm64_gl.DeleteFramebuffers(1, &g_fbo);
     if (g_fbo_color_tex) arm64_gl.DeleteTextures(1, &g_fbo_color_tex);
@@ -918,6 +921,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
 
     uint32_t psig = model2_palette_state_sig();
     if (psig != g_lut_sig || g_lut_n > 1000u) {
+        g_lut_flip ^= 1;
         g_lut_n = 0;
         g_lut_clock = 0;
         g_lut_dirty_min = -1;
@@ -1112,7 +1116,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
                 arm64_gl.ActiveTexture(GL_TEXTURE0); \
                 arm64_gl.BindTexture(GL_TEXTURE_2D, g_sheet_tex[0]); \
                 arm64_gl.ActiveTexture(GL_TEXTURE1); \
-                arm64_gl.BindTexture(GL_TEXTURE_2D, g_lut_atlas_tex); \
+                arm64_gl.BindTexture(GL_TEXTURE_2D, g_lut_atlas_tex[g_lut_flip]); \
                 arm64_gl.ActiveTexture(GL_TEXTURE2); \
                 arm64_gl.BindTexture(GL_TEXTURE_2D, g_sheet_tex[1]); \
                 tex_units_bound = 1; \
