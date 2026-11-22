@@ -20,7 +20,7 @@
 
 #define SYS24_W 496
 #define SYS24_H 384
-#define LUT_CACHE_CAP 1024
+#define LUT_CACHE_CAP 2048
 #define TILE_SLOTS 4
 #define DRAW_SCRATCH_INIT_TRIS 8192
 
@@ -123,8 +123,8 @@ static uint8_t *g_solid_rgb = NULL;
 static unsigned g_scratch_tris = 0;
 static unsigned g_vert_cap = 0;
 
-/* Palette LUT Atlas Cache (16x1024 RGBA) with O(1) hash + batched CPU staging */
-#define LUT_HASH_CAP 2048
+/* Palette LUT Atlas Cache (16x2048 RGBA) with O(1) hash + batched CPU staging */
+#define LUT_HASH_CAP 4096
 typedef struct {
     uint64_t key;
     int16_t row;
@@ -296,7 +296,7 @@ static int ensure_scratch(unsigned ntris, unsigned nverts)
         unsigned vcap = g_vert_cap ? g_vert_cap : (DRAW_SCRATCH_INIT_TRIS * 3u);
         while (vcap < nverts) vcap *= 2u;
         gles_tex_vert_t *tv = (gles_tex_vert_t *)realloc(g_tex_verts, (size_t)vcap * sizeof(gles_tex_vert_t));
-        uint8_t *rgb = (uint8_t *)realloc(g_solid_rgb, (size_t)vcap * 3u);
+        uint8_t *rgb = (uint8_t *)realloc(g_solid_rgb, (size_t)vcap * 4u);
         if (!tv || !rgb) return -1;
         g_tex_verts = tv;
         g_solid_rgb = rgb;
@@ -436,7 +436,13 @@ int arm64_gpu_gles_init(int win_w, int win_h)
         "    float v0 = wrap_coord(v_uv.y, v_patch.w, v_mat.w);\n"
         "    vec2 st = vec2((v_patch.x + u0 + 0.5) / 2048.0,\n"
         "                   (v_patch.y + v0 + 0.5) / 1024.0);\n"
-        "    float texel = (v_mat.x < 0.5) ? texture2D(uSheet0, st).r : texture2D(uSheet1, st).r;\n"
+        "    float chk = (v_mat.x > 1.5) ? 1.0 : 0.0;\n"
+        "    float shn = v_mat.x - 2.0 * chk;\n"
+        "    if (chk > 0.5) {\n"
+        "        vec2 fc = floor(gl_FragCoord.xy);\n"
+        "        if (mod(fc.x + fc.y, 2.0) < 0.5) discard;\n"
+        "    }\n"
+        "    float texel = (shn < 0.5) ? texture2D(uSheet0, st).r : texture2D(uSheet1, st).r;\n"
         "    float t = floor(texel * 255.0 + 0.5);\n"
         "    vec4 c = texture2D(uLut, vec2((t + 0.5) / 16.0, v_luty));\n"
         "    if (v_mat.y > 0.5 && c.a < 0.5) discard;\n"
@@ -462,13 +468,13 @@ int arm64_gpu_gles_init(int win_w, int win_h)
         }
     }
 
-    /* Solid untextured polygon shader */
+    /* Solid untextured polygon shader (supports 50% checker stipple via a_col.a) */
     static const char *solid_vs =
         "precision highp float;\n"
         "attribute vec3 a_pos;\n"
-        "attribute vec3 a_col;\n"
+        "attribute vec4 a_col;\n"
         "uniform mat4 u_mvp;\n"
-        "varying vec3 v_col;\n"
+        "varying vec4 v_col;\n"
         "void main() {\n"
         "    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
         "    v_col = a_col;\n"
@@ -476,9 +482,13 @@ int arm64_gpu_gles_init(int win_w, int win_h)
 
     static const char *solid_fs =
         "precision mediump float;\n"
-        "varying vec3 v_col;\n"
+        "varying vec4 v_col;\n"
         "void main() {\n"
-        "    gl_FragColor = vec4(v_col, 1.0);\n"
+        "    if (v_col.a > 0.5) {\n"
+        "        vec2 fc = floor(gl_FragCoord.xy);\n"
+        "        if (mod(fc.x + fc.y, 2.0) < 0.5) discard;\n"
+        "    }\n"
+        "    gl_FragColor = vec4(v_col.rgb, 1.0);\n"
         "}\n";
 
     g_solid_prog = create_program(solid_vs, solid_fs);
@@ -907,7 +917,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     upload_sheets();
 
     uint32_t psig = model2_palette_state_sig();
-    if (psig != g_lut_sig) {
+    if (psig != g_lut_sig || g_lut_n > 1400u) {
         g_lut_n = 0;
         g_lut_clock = 0;
         g_lut_dirty_min = -1;
@@ -917,13 +927,16 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
         g_lut_wipes++;
     }
 
-    /* O(N) 4-bucket partition: 0=solid, 1=opaque_tex, 2=cutout, 3=pad&1 overlay */
+    /* O(N) 4-bucket partition: 0=solid, 1=opaque_tex, 2=cutout, 3=pad&1 overlay.
+     * MAME draw_scanline_solid<Translucent> (renderer == 1) is a no-op; skip it. */
     unsigned bcount[4] = {0, 0, 0, 0};
     for (unsigned t = 0; t < ntris; t++) {
         const model2_geo_tri_mat_t *m = &mats[t];
+        if (!(m->flags & MODEL2_GEO_TEX_TEXTURED) && (m->flags & MODEL2_GEO_TEX_CUTOUT))
+            continue;
         unsigned b = (m->pad & 1u) ? 3u
                    : (!(m->flags & MODEL2_GEO_TEX_TEXTURED) ? 0u
-                      : ((m->flags & MODEL2_GEO_TEX_CUTOUT) ? 2u : 1u));
+                      : ((m->flags & (MODEL2_GEO_TEX_CUTOUT | MODEL2_GEO_TEX_CHECKER)) ? 2u : 1u));
         bcount[b]++;
     }
     unsigned boff[4];
@@ -935,13 +948,16 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     unsigned solid_end = boff[1];
     unsigned opaque_tex_end = boff[2];
     unsigned world_end = boff[3];
+    unsigned active_tris = world_end + bcount[3];
 
     unsigned bcur[4] = { boff[0], boff[1], boff[2], boff[3] };
     for (unsigned t = 0; t < ntris; t++) {
         const model2_geo_tri_mat_t *m = &mats[t];
+        if (!(m->flags & MODEL2_GEO_TEX_TEXTURED) && (m->flags & MODEL2_GEO_TEX_CUTOUT))
+            continue;
         unsigned b = (m->pad & 1u) ? 3u
                    : (!(m->flags & MODEL2_GEO_TEX_TEXTURED) ? 0u
-                      : ((m->flags & MODEL2_GEO_TEX_CUTOUT) ? 2u : 1u));
+                      : ((m->flags & (MODEL2_GEO_TEX_CUTOUT | MODEL2_GEO_TEX_CHECKER)) ? 2u : 1u));
         unsigned dst_t = bcur[b]++;
         g_order[dst_t] = t;
         uint16_t base = (uint16_t)(t * 3u);
@@ -953,14 +969,14 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     int has_solids = (solid_end > 0);
     int has_tex = (opaque_tex_end > solid_end) || (world_end > opaque_tex_end);
     unsigned ovl_solid_tris = 0, ovl_tex_tris = 0;
-    for (unsigned t = world_end; t < ntris; t++) {
+    for (unsigned t = world_end; t < active_tris; t++) {
         if (mats[g_order[t]].flags & MODEL2_GEO_TEX_TEXTURED) ovl_tex_tris++;
         else ovl_solid_tris++;
     }
     if (ovl_solid_tris) has_solids = 1;
     if (ovl_tex_tris) has_tex = 1;
 
-    /* Populate per-vertex solid RGB and/or textured material attributes */
+    /* Populate per-vertex solid RGBA and/or textured material attributes */
     uint8_t solid_rgb[3] = {0, 0, 0};
     uint16_t last_scb = 0xffffu, last_slb = 0xffffu;
     uint8_t last_sluma = 0xffu;
@@ -970,7 +986,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     uint8_t last_tluma = 0xffu, last_tcut = 0xffu;
     float last_luty = 0.0f;
 
-    for (unsigned t = 0; t < ntris; t++) {
+    for (unsigned t = 0; t < active_tris; t++) {
         unsigned src = g_order[t];
         const model2_geo_tri_mat_t *m = &mats[src];
         unsigned base = src * 3u;
@@ -984,14 +1000,16 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
                 last_sluma = m->luma;
                 have_srgb = 1;
             }
+            uint8_t chk_a = (m->flags & MODEL2_GEO_TEX_CHECKER) ? 255u : 0u;
             for (unsigned k = 0; k < 3u; k++) {
                 const float *sv = xyzuv + (base + k) * 5u;
                 g_tex_verts[base + k].x = sv[0];
                 g_tex_verts[base + k].y = sv[1];
                 g_tex_verts[base + k].z = sv[2];
-                g_solid_rgb[(base + k) * 3u + 0u] = solid_rgb[0];
-                g_solid_rgb[(base + k) * 3u + 1u] = solid_rgb[1];
-                g_solid_rgb[(base + k) * 3u + 2u] = solid_rgb[2];
+                g_solid_rgb[(base + k) * 4u + 0u] = solid_rgb[0];
+                g_solid_rgb[(base + k) * 4u + 1u] = solid_rgb[1];
+                g_solid_rgb[(base + k) * 4u + 2u] = solid_rgb[2];
+                g_solid_rgb[(base + k) * 4u + 3u] = chk_a;
             }
         } else {
             uint8_t cut = (m->flags & MODEL2_GEO_TEX_CUTOUT) ? 1u : 0u;
@@ -1008,7 +1026,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
             float py = (float)m->patch_y;
             float pw = (float)(m->patch_w ? m->patch_w : 32u);
             float ph = (float)(m->patch_h ? m->patch_h : 32u);
-            uint8_t sh = (uint8_t)(m->sheet & 1u);
+            uint8_t sh = (uint8_t)((m->sheet & 1u) | ((m->flags & MODEL2_GEO_TEX_CHECKER) ? 2u : 0u));
             uint8_t mx = (m->flags & MODEL2_GEO_TEX_MIRROR_X) ? 1u : 0u;
             uint8_t my = (m->flags & MODEL2_GEO_TEX_MIRROR_Y) ? 1u : 0u;
 
@@ -1029,7 +1047,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
 
     if (has_solids) {
         arm64_gl.BindBuffer(GL_ARRAY_BUFFER, g_solid_vbo);
-        arm64_gl.BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(nverts * 3u), g_solid_rgb, GL_STREAM_DRAW);
+        arm64_gl.BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(nverts * 4u), g_solid_rgb, GL_STREAM_DRAW);
     }
     if (has_tex) {
         arm64_gl.BindBuffer(GL_ARRAY_BUFFER, g_geo_vbo);
@@ -1040,7 +1058,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     }
 
     arm64_gl.BindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_geo_ibo);
-    arm64_gl.BufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(ntris * 3u * sizeof(uint16_t)), g_elem16, GL_STREAM_DRAW);
+    arm64_gl.BufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(active_tris * 3u * sizeof(uint16_t)), g_elem16, GL_STREAM_DRAW);
 
     arm64_gl.Disable(GL_BLEND);
     arm64_gl.Disable(GL_CULL_FACE);
@@ -1048,7 +1066,6 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     arm64_gl.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     arm64_gl.StencilMask(0xffu);
 
-    int use_stencil = (!g_need_fbo || g_fbo_has_stencil);
     int tex_bound = -1; /* -1=none/solid, 0=opaque, 1=cutout */
     int tex_units_bound = 0;
 
@@ -1074,7 +1091,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
                                      (void *)0); \
         arm64_gl.BindBuffer(GL_ARRAY_BUFFER, g_solid_vbo); \
         arm64_gl.EnableVertexAttribArray(g_a_solid_col); \
-        arm64_gl.VertexAttribPointer(g_a_solid_col, 3, GL_UNSIGNED_BYTE, GL_TRUE, 3, (void *)0); \
+        arm64_gl.VertexAttribPointer(g_a_solid_col, 4, GL_UNSIGNED_BYTE, GL_TRUE, 4, (void *)0); \
     } while (0)
 
     #define BIND_TEX_PROG(pi) do { \
@@ -1138,18 +1155,11 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
         g_geo_calls++;
     }
 
-    /* --- Pass C: cutouts on fresh fillmap (1 draw call) --- */
+    /* --- Pass C: cutouts + checker with hardware Z-buffer (1 draw call) --- */
     if (world_end > opaque_tex_end) {
-        if (use_stencil) {
-            arm64_gl.Clear(GL_STENCIL_BUFFER_BIT);
-            arm64_gl.Enable(GL_STENCIL_TEST);
-            arm64_gl.StencilFunc(GL_EQUAL, 0, 0xff);
-            arm64_gl.StencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-        } else {
-            arm64_gl.Disable(GL_STENCIL_TEST);
-        }
+        arm64_gl.Disable(GL_STENCIL_TEST);
         arm64_gl.Enable(GL_DEPTH_TEST);
-        arm64_gl.DepthMask(GL_FALSE);
+        arm64_gl.DepthMask(GL_TRUE);
         arm64_gl.DepthFunc(GL_LEQUAL);
         BIND_TEX_PROG(1);
         arm64_gl.DrawElements(GL_TRIANGLES, (GLsizei)((world_end - opaque_tex_end) * 3u),
@@ -1158,14 +1168,14 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     }
 
     /* --- Pass D: pad&1 HUD overlays after world --- */
-    if (ntris > world_end) {
+    if (active_tris > world_end) {
         arm64_gl.Disable(GL_STENCIL_TEST);
         arm64_gl.Disable(GL_DEPTH_TEST);
         arm64_gl.DepthMask(GL_FALSE);
         unsigned run_start = world_end;
-        for (unsigned t = world_end + 1u; t <= ntris; t++) {
+        for (unsigned t = world_end + 1u; t <= active_tris; t++) {
             int cur_tex = (mats[g_order[run_start]].flags & MODEL2_GEO_TEX_TEXTURED) ? 1 : 0;
-            int next_tex = (t < ntris) ? ((mats[g_order[t]].flags & MODEL2_GEO_TEX_TEXTURED) ? 1 : 0) : -1;
+            int next_tex = (t < active_tris) ? ((mats[g_order[t]].flags & MODEL2_GEO_TEX_TEXTURED) ? 1 : 0) : -1;
             if (cur_tex == next_tex) continue;
             if (cur_tex) {
                 BIND_TEX_PROG(1);
