@@ -541,8 +541,8 @@ int arm64_gpu_gles_init(int win_w, int win_h)
     arm64_gl.GenTextures(TILE_SLOTS, g_tile_tex);
     for (int i = 0; i < TILE_SLOTS; i++) {
         arm64_gl.BindTexture(GL_TEXTURE_2D, g_tile_tex[i]);
-        arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         arm64_gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         g_tile_tex_init[i] = 0;
@@ -844,8 +844,7 @@ void arm64_gpu_gles_draw_tiles(const uint32_t *src_argb, int transparent)
                 uint32x4_t p = vld1q_u32(src_argb + k);
                 uint32x4_t nz = vtstq_u32(p, kRgbMask);
                 uint8x16_t sw = vqtbl1q_u8(vreinterpretq_u8_u32(p), kSwiz);
-                uint32x4_t res = vandq_u32(vreinterpretq_u32_u8(sw),
-                                           vorrq_u32(kRgbMask, nz));
+                uint32x4_t res = vandq_u32(vreinterpretq_u32_u8(sw), nz);
                 vst1q_u32(dst + k, res);
             }
         } else {
@@ -858,9 +857,12 @@ void arm64_gpu_gles_draw_tiles(const uint32_t *src_argb, int transparent)
         if (transparent) {
             for (int k = 0; k < SYS24_W * SYS24_H; k++) {
                 uint32_t p = src_argb[k];
-                uint32_t rb = ((p & 0x00FF0000u) >> 16) | ((p & 0x000000FFu) << 16);
-                uint32_t a = (p & 0x00FFFFFFu) ? (p & 0xFF000000u) : 0u;
-                dst[k] = a | (p & 0x0000FF00u) | rb;
+                if (p & 0x00FFFFFFu) {
+                    uint32_t rb = ((p & 0x00FF0000u) >> 16) | ((p & 0x000000FFu) << 16);
+                    dst[k] = (p & 0xFF00FF00u) | rb;
+                } else {
+                    dst[k] = 0u;
+                }
             }
         } else {
             for (int k = 0; k < SYS24_W * SYS24_H; k++) {
@@ -890,7 +892,7 @@ void arm64_gpu_gles_draw_tiles(const uint32_t *src_argb, int transparent)
 
     if (transparent) {
         arm64_gl.Enable(GL_BLEND);
-        arm64_gl.BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        arm64_gl.BlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     } else {
         arm64_gl.Disable(GL_BLEND);
     }

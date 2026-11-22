@@ -111,7 +111,7 @@ INC_FLAGS="-I$PWD/src -I$PWD/include -I$PWD/lib/model2/include -I$PWD/lib/model2
   -I$PWD/lib/model2/snd/include -I$PWD/lib/host_compat -I$PWD/platform/arm64 \
   -I$SDL_INC -I$SDL_INC/SDL2"
 
-C_FLAGS="-target $TARGET_TRIPLE -mcpu=$TARGET_CPU -std=gnu99 -O2 -fno-fast-math \
+C_FLAGS="-target $TARGET_TRIPLE -mcpu=$TARGET_CPU -std=gnu99 -O3 -fno-math-errno -fno-fast-math -flto=thin \
   -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-unused-variable -Wno-attributes \
   $COMMON_DEFS $INC_FLAGS"
 
@@ -207,7 +207,7 @@ PYEOF
 "$ZIG_BIN" cc -target "$TARGET_TRIPLE" -shared -fPIC \
     -Wl,-soname,libGLESv2.so.2 "$BDIR/glesv2_stub.c" -o "$BDIR/libGLESv2.so.2"
 
-"$ZIG_BIN" cc -target "$TARGET_TRIPLE" -mcpu="$TARGET_CPU" -O2 -rdynamic \
+"$ZIG_BIN" cc -target "$TARGET_TRIPLE" -mcpu="$TARGET_CPU" -O3 -flto=thin -rdynamic \
     -o "$BDIR/segarally.aarch64" \
     "$BDIR/obj"/*.o \
     -L"$BDIR" -l:libSDL2-2.0.so.0 -l:libGLESv2.so.2 -lm -lpthread -ldl
