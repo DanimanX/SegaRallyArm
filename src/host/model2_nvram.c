@@ -17,6 +17,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __linux__
+#include <unistd.h>
+#endif
 
 #define NVRAM_VERSION 1
 
@@ -50,6 +53,34 @@ static u8 g_region = 2;
 static int g_game_mode_set;
 static u8 g_game_mode;
 
+/* Directory holding the running executable (PortMaster installs nvram.yaml
+ * beside the binary; the launcher may not export SEGAMOD2_ROOT). */
+static const char *nvram_exe_dir(void)
+{
+    static char dir[512];
+
+    if (dir[0])
+        return dir;
+#ifdef __linux__
+    {
+        char exe[512];
+        ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+
+        if (n > 0) {
+            char *slash;
+
+            exe[n] = '\0';
+            slash = strrchr(exe, '/');
+            if (slash) {
+                *slash = '\0';
+                snprintf(dir, sizeof(dir), "%s", exe);
+            }
+        }
+    }
+#endif
+    return dir;
+}
+
 static const char *nvram_default_path(void)
 {
     const char *env = getenv("I960_HOST_NVRAM");
@@ -61,6 +92,12 @@ static const char *nvram_default_path(void)
         static char rooted[512];
         snprintf(rooted, sizeof(rooted), "%s/nvram.yaml", env);
         return rooted;
+    }
+    env = nvram_exe_dir();
+    if (env[0]) {
+        static char beside[512];
+        snprintf(beside, sizeof(beside), "%s/nvram.yaml", env);
+        return beside;
     }
     return "build/lift/nvram.yaml";
 }

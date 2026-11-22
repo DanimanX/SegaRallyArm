@@ -90,6 +90,7 @@ typedef ptrdiff_t      GLsizeiptr;
 typedef void (*PFN_glViewport)(GLint, GLint, GLsizei, GLsizei);
 typedef void (*PFN_glScissor)(GLint, GLint, GLsizei, GLsizei);
 typedef void (*PFN_glClearColor)(GLfloat, GLfloat, GLfloat, GLfloat);
+typedef void (*PFN_glClearStencil)(GLint);
 typedef void (*PFN_glClear)(GLbitfield);
 typedef void (*PFN_glEnable)(GLenum);
 typedef void (*PFN_glDisable)(GLenum);
@@ -156,6 +157,7 @@ typedef struct arm64_gl_api {
     PFN_glViewport Viewport;
     PFN_glScissor Scissor;
     PFN_glClearColor ClearColor;
+    PFN_glClearStencil ClearStencil;
     PFN_glClear Clear;
     PFN_glEnable Enable;
     PFN_glDisable Disable;

@@ -17,6 +17,7 @@ int arm64_gl_load_all(void)
     LOAD_PROC(Viewport, glViewport);
     LOAD_PROC(Scissor, glScissor);
     LOAD_PROC(ClearColor, glClearColor);
+    LOAD_PROC(ClearStencil, glClearStencil);
     LOAD_PROC(Clear, glClear);
     LOAD_PROC(Enable, glEnable);
     LOAD_PROC(Disable, glDisable);

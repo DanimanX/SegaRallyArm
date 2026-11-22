@@ -745,22 +745,15 @@ int sys24_viewer_poll_events(void)
     in_test = (i960_ld_u32(I960_WORKRAM, 0x202098, 0) == 4u);
     race_go = ((i32)i960_ld_u32(I960_WORKRAM, 0x214120, 0) > 0);
 
-    if (arm64_controls_poll(1.0f / 60.0f, race_go, in_test) != 0)
-        return 1;
-
     while (SDL_PollEvent(&ev)) {
         if (ev.type == SDL_QUIT)
             return 1;
         if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
             int pressed = (ev.type == SDL_KEYDOWN);
 
-            /* Cabinet: 5=COIN1, 1=START1, F2=TEST, 9=SERVICE1.
+            /* Cabinet: F2=TEST, 9=SERVICE1 (COIN1/START1/VR via arm64_controls_poll).
              * In test menu (mode 4): wheel/pedals also select —
              *   ←/→/↓ move (SERVICE1), ↑ confirm (TEST). */
-            if (ev.key.keysym.sym == SDLK_5 && !ev.key.repeat)
-                model2_io_in0_set_mask(MODEL2_IO_IN0_COIN1, pressed);
-            if (ev.key.keysym.sym == SDLK_1 && !ev.key.repeat)
-                model2_io_in0_set_mask(MODEL2_IO_IN0_START1, pressed);
             if ((ev.key.keysym.sym == SDLK_9
                  || (in_test && (ev.key.keysym.sym == SDLK_DOWN
                                  || ev.key.keysym.sym == SDLK_LEFT
@@ -774,8 +767,6 @@ int sys24_viewer_poll_events(void)
             }
             if (in_test && ev.key.keysym.sym == SDLK_UP && !ev.key.repeat)
                 model2_io_in0_set_mask(MODEL2_IO_IN0_TEST, pressed);
-            if (ev.key.keysym.sym == SDLK_v && !ev.key.repeat)
-                model2_io_in0_set_mask(MODEL2_IO_IN0_VR, pressed);
 
             /*
              * Menu analog: ←/→ wheel steps, keyup latches while 2020a8==0.
@@ -874,6 +865,10 @@ int sys24_viewer_poll_events(void)
             }
         }
     }
+
+    if (arm64_controls_poll(1.0f / 60.0f, race_go, in_test) != 0)
+        return 1;
+
     /* --practice: poll can smash analog after skip_tick; re-hold Delta AT. */
     i960_host_skip_practice_hold_inputs();
     model2_io_shifter_set(g_shifter);

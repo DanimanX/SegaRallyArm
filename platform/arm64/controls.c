@@ -6,6 +6,8 @@
 #include <math.h>
 
 static SDL_GameController *g_controller = NULL;
+static SDL_Joystick *g_raw_joy = NULL;
+static int g_logged_no_ctrl = 0;
 static arm64_steering_config_t g_cfg = {
     .ramp_rate = 3.8f,
     .return_rate = 8.5f,
@@ -59,6 +61,10 @@ void arm64_controls_shutdown(void)
         SDL_GameControllerClose(g_controller);
         g_controller = NULL;
     }
+    if (g_raw_joy) {
+        SDL_JoystickClose(g_raw_joy);
+        g_raw_joy = NULL;
+    }
 }
 
 void arm64_controls_reset_steering(void)
@@ -77,7 +83,21 @@ int arm64_controls_poll(float delta_time, int in_race, int in_menu)
         for (int i = 0; i < SDL_NumJoysticks(); ++i) {
             if (SDL_IsGameController(i)) {
                 g_controller = SDL_GameControllerOpen(i);
-                if (g_controller) break;
+                if (g_controller) {
+                    printf("arm64_controls: opened GameController: %s\n",
+                           SDL_GameControllerName(g_controller));
+                    break;
+                }
+            } else if (!g_raw_joy && !g_logged_no_ctrl) {
+                g_raw_joy = SDL_JoystickOpen(i);
+                if (g_raw_joy) {
+                    char guid_str[64];
+                    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(g_raw_joy),
+                                              guid_str, sizeof(guid_str));
+                    printf("arm64_controls: unmapped joystick[%d] '%s' guid=%s\n",
+                           i, SDL_JoystickName(g_raw_joy), guid_str);
+                }
+                g_logged_no_ctrl = 1;
             }
         }
     }
@@ -202,21 +222,42 @@ int arm64_controls_poll(float delta_time, int in_race, int in_menu)
     last_shift_up = shift_up;
     last_shift_down = shift_down;
 
-    /* Buttons: Coin, Start, VR View */
-    model2_io_in0_set_mask(MODEL2_IO_IN0_COIN1, btn_select);
-    model2_io_in0_set_mask(MODEL2_IO_IN0_START1, btn_start);
-    model2_io_in0_set_mask(MODEL2_IO_IN0_VR, btn_x);
-
-    /* Edge debug: answers "which pad button is coin?" from log.txt. */
+    /* Buttons: Coin, Start, VR View.
+     * Latch COIN1 for at least 60ms on a rising edge so fast Select taps are
+     * never missed between vblank/geo_vsync_wait samples at lower framerates.
+     * Cancel coin latch if Select+X (test) or Select+Start (exit) is active. */
     {
+        static int prev_select = 0;
+        static Uint32 coin_pulse_until = 0;
+        Uint32 now = SDL_GetTicks();
+        int select_only = btn_select && !btn_x && !btn_start;
+
+        if (select_only && !prev_select) {
+            coin_pulse_until = now + 60u;
+        }
+        if (btn_x || btn_start) {
+            coin_pulse_until = 0;
+        }
+        prev_select = select_only;
+
+        int coin_active = select_only || (coin_pulse_until != 0 && !SDL_TICKS_PASSED(now, coin_pulse_until));
+        if (SDL_TICKS_PASSED(now, coin_pulse_until)) {
+            coin_pulse_until = 0;
+        }
+
+        model2_io_in0_set_mask(MODEL2_IO_IN0_COIN1, coin_active);
+        model2_io_in0_set_mask(MODEL2_IO_IN0_START1, btn_start);
+        model2_io_in0_set_mask(MODEL2_IO_IN0_VR, btn_x);
+
+        /* Edge debug: answers "which pad button is coin?" from log.txt. */
         static int prev_coin = 0, prev_start = 0, prev_guide = 0;
-        if (btn_select && !prev_coin)
+        if (coin_active && !prev_coin)
             printf("arm64_controls: COIN1 edge (select/back)\n");
         if (btn_start && !prev_start)
             printf("arm64_controls: START1 edge (start)\n");
         if (btn_guide && !prev_guide)
             printf("arm64_controls: GUIDE edge (menu btn)\n");
-        prev_coin = btn_select;
+        prev_coin = coin_active;
         prev_start = btn_start;
         prev_guide = btn_guide;
     }
