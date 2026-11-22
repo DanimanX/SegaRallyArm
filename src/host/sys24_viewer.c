@@ -902,29 +902,6 @@ int sys24_viewer_poll_events(void)
 
     /* --practice: poll can smash analog after skip_tick; re-hold Delta AT. */
     i960_host_skip_practice_hold_inputs();
-    /*
-     * After GO: hold ←/→ wheel, ↑/W/A throttle, ↓/S/Z brake. io_poll copies
-     * the mux into 0x202050/51/52; fov_scale / matrix_prep / control_byte
-     * read those (gated on 214120 in the race leaves).
-     */
-    if ((i32)i960_ld_u32(I960_WORKRAM, 0x214120, 0) > 0 && !in_test) {
-        const Uint8 *ks = SDL_GetKeyboardState(NULL);
-        int left = ks[SDL_SCANCODE_LEFT] != 0;
-        int right = ks[SDL_SCANCODE_RIGHT] != 0;
-        int throttle = ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W]
-            || ks[SDL_SCANCODE_A];
-        int brake = ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S]
-            || ks[SDL_SCANCODE_Z];
-        u8 steer = 0x80u;
-
-        if (left && !right)
-            steer = 0x20u;
-        else if (right && !left)
-            steer = 0xe0u;
-        model2_io_analog_set(MODEL2_IO_AN_STEER, steer);
-        model2_io_analog_set(MODEL2_IO_AN_ACCEL, throttle ? 0xe0u : 0x00u);
-        model2_io_analog_set(MODEL2_IO_AN_BRAKE, brake ? 0xe0u : 0x00u);
-    }
     return 0;
 #endif
 }

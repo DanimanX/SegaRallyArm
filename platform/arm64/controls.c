@@ -143,7 +143,7 @@ int arm64_controls_poll(float delta_time, int in_race, int in_menu)
         if (ks[SDL_SCANCODE_RIGHT]) right = 1;
         if (ks[SDL_SCANCODE_UP]) up = 1;
         if (ks[SDL_SCANCODE_DOWN]) down = 1;
-        if (ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_Z]) btn_a = 1; /* Throttle */
+        if (ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_Z] || ks[SDL_SCANCODE_W]) btn_a = 1; /* Throttle */
         if (ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_X]) btn_b = 1; /* Brake */
         if (ks[SDL_SCANCODE_V]) btn_x = 1;                      /* Change View */
         if (ks[SDL_SCANCODE_1] || ks[SDL_SCANCODE_RETURN]) btn_start = 1;
