@@ -339,42 +339,44 @@ int sys24_viewer_open(const char *title)
     }
 
 #ifdef I960_HOST_HAVE_GL
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    /* MAME geo fillmap — host approximates with stencil (first texel wins). */
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-#if defined(SEGAMOD2_GLES) || defined(__aarch64__)
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#else
-    const char *gles_env = getenv("DAYTONA_GLES");
-    if (!gles_env) gles_env = getenv("SEGAMOD2_GLES");
-    if (gles_env && gles_env[0] == '1') {
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-    } else {
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
-    }
-#endif
-    int win_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL;
-    const char *fs_env = getenv("SEGAMOD2_FULLSCREEN");
-    if (!fs_env) fs_env = getenv("DAYTONA_FULLSCREEN");
-    if (fs_env && fs_env[0] == '1') {
-        win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-    }
     {
         static const int gl_cfg[4][2] = {
-            { 24, 8 }, { 16, 8 }, { 24, 0 }, { 16, 0 }
+            { 24, 0 }, { 16, 0 }, { 24, 8 }, { 16, 8 }
         };
+        int win_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL;
+        const char *fs_env = getenv("SEGAMOD2_FULLSCREEN");
         int ci;
+        if (!fs_env) fs_env = getenv("DAYTONA_FULLSCREEN");
+        if (fs_env && fs_env[0] == '1') {
+            win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+        }
         for (ci = 0; ci < 4; ci++) {
             int got_depth = 0;
+            SDL_GL_ResetAttributes();
+            SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+            SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+            SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+            SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+            SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
             SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, gl_cfg[ci][0]);
             SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, gl_cfg[ci][1]);
+#if defined(SEGAMOD2_GLES) || defined(__aarch64__)
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
+            const char *gles_env = getenv("DAYTONA_GLES");
+            if (!gles_env) gles_env = getenv("SEGAMOD2_GLES");
+            if (gles_env && gles_env[0] == '1') {
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+            } else {
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+            }
+#endif
             g_window = SDL_CreateWindow(
                 VIEWER_TITLE,
                 SDL_WINDOWPOS_CENTERED,

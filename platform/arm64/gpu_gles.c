@@ -7,6 +7,10 @@
 #include <math.h>
 #include <time.h>
 
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#endif
+
 #ifndef GL_DEPTH_BITS
 #define GL_DEPTH_BITS 0x0D58
 #endif
@@ -61,21 +65,22 @@ static int g_win_h = 480;
 
 /* Shaders and programs */
 static GLuint g_geo_prog = 0;
+static GLuint g_geo_cutout_prog = 0;
 static GLuint g_solid_prog = 0;
 static GLuint g_tile_prog = 0;
 
-/* Uniform locations for Geo Program */
-static GLint g_u_mvp = -1;
-static GLint g_u_sheet0 = -1;
-static GLint g_u_sheet1 = -1;
-static GLint g_u_lut = -1;
+/* Uniform locations for Geo Programs (0=opaque, 1=cutout) */
+static GLint g_u_mvp[2] = {-1, -1};
+static GLint g_u_sheet0[2] = {-1, -1};
+static GLint g_u_sheet1[2] = {-1, -1};
+static GLint g_u_lut[2] = {-1, -1};
 
-/* Attribute locations for Geo Program */
-static GLint g_a_pos = -1;
-static GLint g_a_uv = -1;
-static GLint g_a_patch = -1;
-static GLint g_a_luty = -1;
-static GLint g_a_mat = -1;
+/* Attribute locations for Geo Programs */
+static GLint g_a_pos[2] = {-1, -1};
+static GLint g_a_uv[2] = {-1, -1};
+static GLint g_a_patch[2] = {-1, -1};
+static GLint g_a_luty[2] = {-1, -1};
+static GLint g_a_mat[2] = {-1, -1};
 
 /* Uniform and attribute locations for Solid Program */
 static GLint g_u_solid_mvp = -1;
@@ -415,7 +420,35 @@ int arm64_gpu_gles_init(int win_w, int win_h)
         "    v_mat = a_mat;\n"
         "}\n";
 
-    static const char *geo_fs =
+    static const char *geo_fs_opaque =
+        "precision highp float;\n"
+        "varying vec2 v_uv;\n"
+        "varying vec4 v_patch;\n"
+        "varying float v_luty;\n"
+        "varying vec4 v_mat;\n"
+        "uniform sampler2D uSheet0;\n"
+        "uniform sampler2D uSheet1;\n"
+        "uniform sampler2D uLut;\n"
+        "float wrap_coord(float pix, float size, float mirror) {\n"
+        "    float s = max(size, 1.0);\n"
+        "    float cell = floor(pix / s);\n"
+        "    float local = pix - cell * s;\n"
+        "    if (mirror > 0.5 && mod(cell, 2.0) >= 1.0)\n"
+        "        local = s - 1.0 - local;\n"
+        "    return clamp(floor(local), 0.0, s - 1.0);\n"
+        "}\n"
+        "void main() {\n"
+        "    float u0 = wrap_coord(v_uv.x, v_patch.z, v_mat.z);\n"
+        "    float v0 = wrap_coord(v_uv.y, v_patch.w, v_mat.w);\n"
+        "    vec2 st = vec2((v_patch.x + u0 + 0.5) / 2048.0,\n"
+        "                   (v_patch.y + v0 + 0.5) / 1024.0);\n"
+        "    float texel = (v_mat.x < 0.5) ? texture2D(uSheet0, st).r : texture2D(uSheet1, st).r;\n"
+        "    float t = floor(texel * 255.0 + 0.5);\n"
+        "    vec4 c = texture2D(uLut, vec2((t + 0.5) / 16.0, v_luty));\n"
+        "    gl_FragColor = vec4(c.rgb, 1.0);\n"
+        "}\n";
+
+    static const char *geo_fs_cutout =
         "precision highp float;\n"
         "varying vec2 v_uv;\n"
         "varying vec4 v_patch;\n"
@@ -444,18 +477,24 @@ int arm64_gpu_gles_init(int win_w, int win_h)
         "    gl_FragColor = vec4(c.rgb, 1.0);\n"
         "}\n";
 
-    g_geo_prog = create_program(geo_vs, geo_fs);
-    if (!g_geo_prog) return -1;
+    g_geo_prog = create_program(geo_vs, geo_fs_opaque);
+    g_geo_cutout_prog = create_program(geo_vs, geo_fs_cutout);
+    if (!g_geo_prog || !g_geo_cutout_prog) return -1;
 
-    g_u_mvp = arm64_gl.GetUniformLocation(g_geo_prog, "u_mvp");
-    g_u_sheet0 = arm64_gl.GetUniformLocation(g_geo_prog, "uSheet0");
-    g_u_sheet1 = arm64_gl.GetUniformLocation(g_geo_prog, "uSheet1");
-    g_u_lut = arm64_gl.GetUniformLocation(g_geo_prog, "uLut");
-    g_a_pos = arm64_gl.GetAttribLocation(g_geo_prog, "a_pos");
-    g_a_uv = arm64_gl.GetAttribLocation(g_geo_prog, "a_uv");
-    g_a_patch = arm64_gl.GetAttribLocation(g_geo_prog, "a_patch");
-    g_a_luty = arm64_gl.GetAttribLocation(g_geo_prog, "a_luty");
-    g_a_mat = arm64_gl.GetAttribLocation(g_geo_prog, "a_mat");
+    {
+        GLuint progs[2] = { g_geo_prog, g_geo_cutout_prog };
+        for (int pi = 0; pi < 2; pi++) {
+            g_u_mvp[pi] = arm64_gl.GetUniformLocation(progs[pi], "u_mvp");
+            g_u_sheet0[pi] = arm64_gl.GetUniformLocation(progs[pi], "uSheet0");
+            g_u_sheet1[pi] = arm64_gl.GetUniformLocation(progs[pi], "uSheet1");
+            g_u_lut[pi] = arm64_gl.GetUniformLocation(progs[pi], "uLut");
+            g_a_pos[pi] = arm64_gl.GetAttribLocation(progs[pi], "a_pos");
+            g_a_uv[pi] = arm64_gl.GetAttribLocation(progs[pi], "a_uv");
+            g_a_patch[pi] = arm64_gl.GetAttribLocation(progs[pi], "a_patch");
+            g_a_luty[pi] = arm64_gl.GetAttribLocation(progs[pi], "a_luty");
+            g_a_mat[pi] = arm64_gl.GetAttribLocation(progs[pi], "a_mat");
+        }
+    }
 
     /* Solid untextured polygon shader */
     static const char *solid_vs =
@@ -589,6 +628,7 @@ void arm64_gpu_gles_shutdown(void)
 {
     if (!g_ready) return;
     if (g_geo_prog) arm64_gl.DeleteProgram(g_geo_prog);
+    if (g_geo_cutout_prog) arm64_gl.DeleteProgram(g_geo_cutout_prog);
     if (g_solid_prog) arm64_gl.DeleteProgram(g_solid_prog);
     if (g_tile_prog) arm64_gl.DeleteProgram(g_tile_prog);
     if (g_sheet_tex[0]) arm64_gl.DeleteTextures(2, g_sheet_tex);
@@ -802,6 +842,26 @@ void arm64_gpu_gles_draw_tiles(const uint32_t *src_argb, int transparent)
 
     if (!same) {
         uint32_t *dst = g_tile_rgba_buf;
+#if defined(__aarch64__)
+        static const uint8x16_t kSwiz = {2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15};
+        const uint32x4_t kRgbMask = vdupq_n_u32(0x00FFFFFFu);
+        const int total = SYS24_W * SYS24_H;
+        if (transparent) {
+            for (int k = 0; k < total; k += 4) {
+                uint32x4_t p = vld1q_u32(src_argb + k);
+                uint32x4_t nz = vtstq_u32(p, kRgbMask);
+                uint8x16_t sw = vqtbl1q_u8(vreinterpretq_u8_u32(p), kSwiz);
+                uint32x4_t res = vandq_u32(vreinterpretq_u32_u8(sw),
+                                           vorrq_u32(kRgbMask, nz));
+                vst1q_u32(dst + k, res);
+            }
+        } else {
+            for (int k = 0; k < total; k += 4) {
+                uint8x16_t v = vld1q_u8((const uint8_t *)(src_argb + k));
+                vst1q_u8((uint8_t *)(dst + k), vqtbl1q_u8(v, kSwiz));
+            }
+        }
+#else
         if (transparent) {
             for (int k = 0; k < SYS24_W * SYS24_H; k++) {
                 uint32_t p = src_argb[k];
@@ -815,6 +875,7 @@ void arm64_gpu_gles_draw_tiles(const uint32_t *src_argb, int transparent)
                 dst[k] = (p & 0xFF00FF00u) | ((p & 0x00FF0000u) >> 16) | ((p & 0x000000FFu) << 16);
             }
         }
+#endif
         if (src_saved[slot]) {
             memcpy(src_saved[slot], src_argb, src_bytes);
             src_valid[slot] = 1;
@@ -1015,16 +1076,21 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
     arm64_gl.StencilMask(0xffu);
 
     int use_stencil = (!g_need_fbo || g_fbo_has_stencil);
-    int tex_bound = 0;
+    int tex_bound = -1; /* -1=none/solid, 0=opaque, 1=cutout */
+    int tex_units_bound = 0;
+
+    #define DISABLE_TEX_ATTRIBS(pi) do { \
+        arm64_gl.DisableVertexAttribArray(g_a_pos[pi]); \
+        arm64_gl.DisableVertexAttribArray(g_a_uv[pi]); \
+        arm64_gl.DisableVertexAttribArray(g_a_patch[pi]); \
+        arm64_gl.DisableVertexAttribArray(g_a_luty[pi]); \
+        arm64_gl.DisableVertexAttribArray(g_a_mat[pi]); \
+    } while (0)
 
     #define BIND_SOLID_PROG() do { \
-        if (tex_bound) { \
-            arm64_gl.DisableVertexAttribArray(g_a_pos); \
-            arm64_gl.DisableVertexAttribArray(g_a_uv); \
-            arm64_gl.DisableVertexAttribArray(g_a_patch); \
-            arm64_gl.DisableVertexAttribArray(g_a_luty); \
-            arm64_gl.DisableVertexAttribArray(g_a_mat); \
-            tex_bound = 0; \
+        if (tex_bound >= 0) { \
+            DISABLE_TEX_ATTRIBS(tex_bound); \
+            tex_bound = -1; \
         } \
         arm64_gl.UseProgram(g_solid_prog); \
         arm64_gl.UniformMatrix4fv(g_u_solid_mvp, 1, GL_FALSE, mvp_matrix); \
@@ -1038,35 +1104,41 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
         arm64_gl.VertexAttribPointer(g_a_solid_col, 3, GL_UNSIGNED_BYTE, GL_TRUE, 3, (void *)0); \
     } while (0)
 
-    #define BIND_TEX_PROG() do { \
-        if (!tex_bound) { \
-            if (has_solids) { \
+    #define BIND_TEX_PROG(pi) do { \
+        if (tex_bound != (pi)) { \
+            if (tex_bound >= 0) { \
+                DISABLE_TEX_ATTRIBS(tex_bound); \
+            } else if (has_solids) { \
                 arm64_gl.DisableVertexAttribArray(g_a_solid_pos); \
                 arm64_gl.DisableVertexAttribArray(g_a_solid_col); \
             } \
-            arm64_gl.UseProgram(g_geo_prog); \
-            arm64_gl.UniformMatrix4fv(g_u_mvp, 1, GL_FALSE, mvp_matrix); \
-            arm64_gl.Uniform1i(g_u_sheet0, 0); \
-            arm64_gl.Uniform1i(g_u_lut, 1); \
-            arm64_gl.Uniform1i(g_u_sheet1, 2); \
-            arm64_gl.ActiveTexture(GL_TEXTURE0); \
-            arm64_gl.BindTexture(GL_TEXTURE_2D, g_sheet_tex[0]); \
-            arm64_gl.ActiveTexture(GL_TEXTURE1); \
-            arm64_gl.BindTexture(GL_TEXTURE_2D, g_lut_atlas_tex); \
-            arm64_gl.ActiveTexture(GL_TEXTURE2); \
-            arm64_gl.BindTexture(GL_TEXTURE_2D, g_sheet_tex[1]); \
+            GLuint prog = (pi) ? g_geo_cutout_prog : g_geo_prog; \
+            arm64_gl.UseProgram(prog); \
+            arm64_gl.UniformMatrix4fv(g_u_mvp[pi], 1, GL_FALSE, mvp_matrix); \
+            arm64_gl.Uniform1i(g_u_sheet0[pi], 0); \
+            arm64_gl.Uniform1i(g_u_lut[pi], 1); \
+            arm64_gl.Uniform1i(g_u_sheet1[pi], 2); \
+            if (!tex_units_bound) { \
+                arm64_gl.ActiveTexture(GL_TEXTURE0); \
+                arm64_gl.BindTexture(GL_TEXTURE_2D, g_sheet_tex[0]); \
+                arm64_gl.ActiveTexture(GL_TEXTURE1); \
+                arm64_gl.BindTexture(GL_TEXTURE_2D, g_lut_atlas_tex); \
+                arm64_gl.ActiveTexture(GL_TEXTURE2); \
+                arm64_gl.BindTexture(GL_TEXTURE_2D, g_sheet_tex[1]); \
+                tex_units_bound = 1; \
+            } \
             arm64_gl.BindBuffer(GL_ARRAY_BUFFER, g_geo_vbo); \
-            arm64_gl.EnableVertexAttribArray(g_a_pos); \
-            arm64_gl.EnableVertexAttribArray(g_a_uv); \
-            arm64_gl.EnableVertexAttribArray(g_a_patch); \
-            arm64_gl.EnableVertexAttribArray(g_a_luty); \
-            arm64_gl.EnableVertexAttribArray(g_a_mat); \
-            arm64_gl.VertexAttribPointer(g_a_pos, 3, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, x)); \
-            arm64_gl.VertexAttribPointer(g_a_uv, 2, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, u)); \
-            arm64_gl.VertexAttribPointer(g_a_patch, 4, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, px)); \
-            arm64_gl.VertexAttribPointer(g_a_luty, 1, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, lut_y)); \
-            arm64_gl.VertexAttribPointer(g_a_mat, 4, GL_UNSIGNED_BYTE, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, sheet)); \
-            tex_bound = 1; \
+            arm64_gl.EnableVertexAttribArray(g_a_pos[pi]); \
+            arm64_gl.EnableVertexAttribArray(g_a_uv[pi]); \
+            arm64_gl.EnableVertexAttribArray(g_a_patch[pi]); \
+            arm64_gl.EnableVertexAttribArray(g_a_luty[pi]); \
+            arm64_gl.EnableVertexAttribArray(g_a_mat[pi]); \
+            arm64_gl.VertexAttribPointer(g_a_pos[pi], 3, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, x)); \
+            arm64_gl.VertexAttribPointer(g_a_uv[pi], 2, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, u)); \
+            arm64_gl.VertexAttribPointer(g_a_patch[pi], 4, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, px)); \
+            arm64_gl.VertexAttribPointer(g_a_luty[pi], 1, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, lut_y)); \
+            arm64_gl.VertexAttribPointer(g_a_mat[pi], 4, GL_UNSIGNED_BYTE, GL_FALSE, (GLsizei)sizeof(gles_tex_vert_t), (void *)offsetof(gles_tex_vert_t, sheet)); \
+            tex_bound = (pi); \
         } \
     } while (0)
 
@@ -1081,13 +1153,13 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
         g_geo_calls++;
     }
 
-    /* --- Pass B: opaque-tex depth write (hardware Z-buffer, no stencil occlusion) --- */
+    /* --- Pass B: opaque-tex depth write (no discard -> Mali Early-Z + HSR) --- */
     if (opaque_tex_end > solid_end) {
         arm64_gl.Enable(GL_DEPTH_TEST);
         arm64_gl.DepthMask(GL_TRUE);
         arm64_gl.DepthFunc(GL_LEQUAL);
         arm64_gl.Disable(GL_STENCIL_TEST);
-        BIND_TEX_PROG();
+        BIND_TEX_PROG(0);
         arm64_gl.DrawElements(GL_TRIANGLES, (GLsizei)((opaque_tex_end - solid_end) * 3u),
                               GL_UNSIGNED_SHORT, (void *)(uintptr_t)(solid_end * 3u * sizeof(uint16_t)));
         g_geo_calls++;
@@ -1106,7 +1178,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
         arm64_gl.Enable(GL_DEPTH_TEST);
         arm64_gl.DepthMask(GL_FALSE);
         arm64_gl.DepthFunc(GL_LEQUAL);
-        BIND_TEX_PROG();
+        BIND_TEX_PROG(1);
         arm64_gl.DrawElements(GL_TRIANGLES, (GLsizei)((world_end - opaque_tex_end) * 3u),
                               GL_UNSIGNED_SHORT, (void *)(uintptr_t)(opaque_tex_end * 3u * sizeof(uint16_t)));
         g_geo_calls++;
@@ -1123,7 +1195,7 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
             int next_tex = (t < ntris) ? ((mats[g_order[t]].flags & MODEL2_GEO_TEX_TEXTURED) ? 1 : 0) : -1;
             if (cur_tex == next_tex) continue;
             if (cur_tex) {
-                BIND_TEX_PROG();
+                BIND_TEX_PROG(1);
             } else {
                 BIND_SOLID_PROG();
             }
@@ -1134,17 +1206,14 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
         }
     }
 
-    if (tex_bound) {
-        arm64_gl.DisableVertexAttribArray(g_a_pos);
-        arm64_gl.DisableVertexAttribArray(g_a_uv);
-        arm64_gl.DisableVertexAttribArray(g_a_patch);
-        arm64_gl.DisableVertexAttribArray(g_a_luty);
-        arm64_gl.DisableVertexAttribArray(g_a_mat);
+    if (tex_bound >= 0) {
+        DISABLE_TEX_ATTRIBS(tex_bound);
     } else if (has_solids) {
         arm64_gl.DisableVertexAttribArray(g_a_solid_pos);
         arm64_gl.DisableVertexAttribArray(g_a_solid_col);
     }
 
+    #undef DISABLE_TEX_ATTRIBS
     #undef BIND_SOLID_PROG
     #undef BIND_TEX_PROG
 

@@ -160,7 +160,13 @@ xargs -P "$JOBS" -I{} sh -c '
     tag=$(echo "$src" | tr "/." "__")
     out="$2/${tag}.o"
     [ -f "$out" ] && [ "$out" -nt "$src" ] && exit 0
-    exec "$3" cc '"$C_FLAGS"' -c "$src" -o "$out"
+    extra=""
+    case "$src" in
+        lib/model2/geo/*|lib/model2/tgp/*|lib/model2/snd/*|platform/arm64/gpu_gles.c|src/host/sys24_tile.c|src/host/sys24_gfx.c)
+            extra="-O3 -fno-math-errno"
+            ;;
+    esac
+    exec "$3" cc '"$C_FLAGS"' $extra -c "$src" -o "$out"
 ' _ {} "$BDIR/obj" "$ZIG_BIN" < "$BDIR/sources.txt"
 
 echo "[4/5] Generating SDL2 and GLESv2 link-stubs and linking segarally.aarch64..."
