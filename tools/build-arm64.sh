@@ -162,7 +162,7 @@ xargs -P "$JOBS" -I{} sh -c '
     [ -f "$out" ] && [ "$out" -nt "$src" ] && exit 0
     extra=""
     case "$src" in
-        lib/model2/geo/*|lib/model2/tgp/*|lib/model2/snd/*|platform/arm64/gpu_gles.c|src/host/sys24_tile.c|src/host/sys24_gfx.c)
+        src/game/*|lib/model2/geo/*|lib/model2/tgp/*|lib/model2/snd/*|lib/model2/hw/*|lib/model2/host/*|platform/arm64/gpu_gles.c|src/host/sys24_tile.c|src/host/sys24_gfx.c)
             extra="-O3 -fno-math-errno"
             ;;
     esac

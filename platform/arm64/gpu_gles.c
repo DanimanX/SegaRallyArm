@@ -48,7 +48,7 @@ static int g_ready = 0;
  * SEGAMOD2_SNAP_N=<frames>, default 240) for on-device diagnosis. */
 static uint64_t g_frames = 0, g_geo_calls = 0, g_tile_uploads = 0;
 static uint64_t g_sheet_reups = 0, g_lut_built = 0, g_lut_wipes = 0;
-static uint64_t g_render_ms = 0, g_submit_t0 = 0, g_window_t0 = 0;
+static uint64_t g_render_ms = 0, g_emu_ms = 0, g_submit_t0 = 0, g_last_end_t = 0, g_window_t0 = 0;
 static char g_snap_prefix[256];
 static unsigned g_snap_n = 240, g_snap_tick = 0;
 
@@ -677,6 +677,7 @@ static void calculate_viewport(int win_w, int win_h, int *vx, int *vy, int *vw, 
 void arm64_gpu_gles_begin_frame(int display_w, int display_h)
 {
     g_submit_t0 = mono_ms();
+    if (g_last_end_t) g_emu_ms += g_submit_t0 - g_last_end_t;
     g_win_w = display_w;
     g_win_h = display_h;
 
@@ -769,7 +770,9 @@ void arm64_gpu_gles_end_frame(void)
     }
 
     g_frames++;
-    g_render_ms += mono_ms() - g_submit_t0;
+    now = mono_ms();
+    g_render_ms += now - g_submit_t0;
+    g_last_end_t = now;
 
     if (g_snap_prefix[0] != '\0') {
         g_snap_tick++;
@@ -777,19 +780,19 @@ void arm64_gpu_gles_end_frame(void)
             write_snapshot();
     }
 
-    now = mono_ms();
     if (g_window_t0 == 0u) { g_window_t0 = now; return; }
     if (now - g_window_t0 >= 2000ull) {
-        printf("gpu_gles stats: fps=%.1f submit_ms=%.2f draws/s=%llu tiles_up/s=%llu"
+        printf("gpu_gles stats: fps=%.1f submit_ms=%.2f emu_ms=%.2f draws/s=%llu tiles_up/s=%llu"
                " sheet_reups=%llu lut_entries=%u lut_built=%llu lut_wipes=%llu\n",
                (double)g_frames * 1000.0 / (double)(now - g_window_t0),
                (double)g_render_ms / (double)g_frames,
+               (double)g_emu_ms / (double)g_frames,
                (unsigned long long)(g_geo_calls * 1000ull / (now - g_window_t0)),
                (unsigned long long)(g_tile_uploads * 1000ull / (now - g_window_t0)),
                (unsigned long long)g_sheet_reups, g_lut_n,
                (unsigned long long)g_lut_built, (unsigned long long)g_lut_wipes);
         fflush(stdout);
-        g_frames = 0; g_render_ms = 0; g_geo_calls = 0; g_tile_uploads = 0;
+        g_frames = 0; g_render_ms = 0; g_emu_ms = 0; g_geo_calls = 0; g_tile_uploads = 0;
         g_window_t0 = now;
     }
 }
