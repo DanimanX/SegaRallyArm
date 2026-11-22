@@ -122,10 +122,15 @@ static gles_tex_vert_t *g_tex_verts = NULL;
 static uint8_t *g_solid_rgb = NULL;
 static unsigned g_scratch_tris = 0;
 static unsigned g_vert_cap = 0;
-static const model2_geo_tri_mat_t *g_sort_mats = NULL;
 
-/* Palette LUT Atlas Cache (16x1024 RGBA) with batched CPU staging */
+/* Palette LUT Atlas Cache (16x1024 RGBA) with O(1) hash + batched CPU staging */
+#define LUT_HASH_CAP 2048
+typedef struct {
+    uint64_t key;
+    int16_t row;
+} lut_hash_ent_t;
 static lut_entry_t g_lut_cache[LUT_CACHE_CAP];
+static lut_hash_ent_t g_lut_hash[LUT_HASH_CAP];
 static uint8_t g_lut_atlas_cpu[LUT_CACHE_CAP * 16 * 4];
 static unsigned g_lut_n = 0;
 static unsigned g_lut_clock = 0;
@@ -182,24 +187,32 @@ static GLuint create_program(const char *vs_src, const char *fs_src)
     return prog;
 }
 
+static void lut_hash_reset(void)
+{
+    for (unsigned i = 0; i < LUT_HASH_CAP; i++)
+        g_lut_hash[i].row = -1;
+}
+
 static unsigned lut_atlas_row(const model2_geo_tri_mat_t *m)
 {
     uint8_t cutout = (m->flags & MODEL2_GEO_TEX_CUTOUT) ? 1u : 0u;
-    for (unsigned i = 0; i < g_lut_n; i++) {
-        if (g_lut_cache[i].colorbase == m->colorbase &&
-            g_lut_cache[i].lumabase == m->lumabase &&
-            g_lut_cache[i].luma == m->luma &&
-            g_lut_cache[i].cutout == cutout) {
-            return i;
-        }
+    uint64_t key = (uint64_t)m->colorbase | ((uint64_t)m->lumabase << 16) |
+                   ((uint64_t)m->luma << 32) | ((uint64_t)cutout << 40);
+    uint32_t h = (uint32_t)((key ^ (key >> 21) ^ (key >> 42)) * 2654435761u) & (LUT_HASH_CAP - 1u);
+    for (unsigned probe = 0; probe < 16u; probe++) {
+        unsigned idx = (h + probe) & (LUT_HASH_CAP - 1u);
+        int16_t r = g_lut_hash[idx].row;
+        if (r < 0) break;
+        if (g_lut_hash[idx].key == key) return (unsigned)r;
     }
 
     unsigned row;
-    if (g_lut_n < LUT_CACHE_CAP) {
-        row = g_lut_n++;
-    } else {
-        row = g_lut_clock++ % LUT_CACHE_CAP;
+    if (g_lut_n >= LUT_CACHE_CAP) {
+        g_lut_n = 0;
+        g_lut_clock = 0;
+        lut_hash_reset();
     }
+    row = g_lut_n++;
 
     model2_palette_build_texel_lut(m->colorbase, m->lumabase, m->luma, cutout,
                                    &g_lut_atlas_cpu[row * 16u * 4u]);
@@ -214,6 +227,15 @@ static unsigned lut_atlas_row(const model2_geo_tri_mat_t *m)
     g_lut_cache[row].lumabase = m->lumabase;
     g_lut_cache[row].luma = m->luma;
     g_lut_cache[row].cutout = cutout;
+
+    for (unsigned probe = 0; probe < LUT_HASH_CAP; probe++) {
+        unsigned idx = (h + probe) & (LUT_HASH_CAP - 1u);
+        if (g_lut_hash[idx].row < 0) {
+            g_lut_hash[idx].key = key;
+            g_lut_hash[idx].row = (int16_t)row;
+            break;
+        }
+    }
     return row;
 }
 
@@ -280,62 +302,6 @@ static int ensure_scratch(unsigned ntris, unsigned nverts)
         g_solid_rgb = rgb;
         g_vert_cap = vcap;
     }
-    return 0;
-}
-
-/* MAME model2_state::float_to_zval */
-static unsigned float_to_zval(float floatval, uint32_t z_adjust)
-{
-    union {
-        float f;
-        uint32_t u;
-    } conv;
-    int32_t fpint;
-    int32_t exponent;
-    uint32_t mantissa;
-
-    conv.f = floatval;
-    fpint = (int32_t)conv.u;
-    exponent = ((fpint >> 23) & 0xff) - (int32_t)((z_adjust >> 23) & 0xffu);
-    mantissa = (uint32_t)fpint & 0x7fffffu;
-    mantissa += 0x400u;
-    if (mantissa > 0x7fffffu) {
-        exponent++;
-        mantissa = (mantissa & 0x7fffffu) >> 1;
-    }
-    mantissa >>= 11;
-    if (fpint < 0) return 0;
-    if (exponent < -12) return 0;
-    if (exponent < 0) return (mantissa | 0x1000u) >> (unsigned)(-exponent);
-    if (exponent < 15) return ((unsigned)(exponent + 1) << 12) | mantissa;
-    return 0xffffu;
-}
-
-static int mat_order_cmp(const void *a, const void *b)
-{
-    unsigned ia = *(const unsigned *)a;
-    unsigned ib = *(const unsigned *)b;
-    const model2_geo_tri_mat_t *ma = &g_sort_mats[ia];
-    const model2_geo_tri_mat_t *mb = &g_sort_mats[ib];
-    unsigned za = float_to_zval(ma->z_sort, 0u);
-    unsigned zb = float_to_zval(mb->z_sort, 0u);
-    int ca = (ma->flags & MODEL2_GEO_TEX_CUTOUT) ? 1 : 0;
-    int cb = (mb->flags & MODEL2_GEO_TEX_CUTOUT) ? 1 : 0;
-    int ta = (ma->flags & MODEL2_GEO_TEX_TEXTURED) ? 1 : 0;
-    int tb = (mb->flags & MODEL2_GEO_TEX_TEXTURED) ? 1 : 0;
-    int ka = ta ? (ca ? 2 : 1) : 0;
-    int kb = tb ? (cb ? 2 : 1) : 0;
-
-    if ((ma->pad & 1u) != (mb->pad & 1u))
-        return ((ma->pad & 1u) < (mb->pad & 1u)) ? -1 : 1;
-    if (ka != kb)
-        return (ka < kb) ? -1 : 1;
-    if (za != zb)
-        return (za < zb) ? -1 : 1;
-    if (za == 0xffffu && ma->z_sort != mb->z_sort)
-        return (ma->z_sort < mb->z_sort) ? -1 : 1;
-    if (ia != ib)
-        return (ia > ib) ? -1 : 1;
     return 0;
 }
 
@@ -620,6 +586,7 @@ int arm64_gpu_gles_init(int win_w, int win_h)
         }
     }
     g_ready = 1;
+    lut_hash_reset();
     printf("gpu_gles: initialized Mali-G31 GLES 2.0 pipeline (%dx%d)\n", win_w, win_h);
     return 0;
 }
@@ -945,37 +912,43 @@ void arm64_gpu_gles_draw_geo(const float *xyzuv, unsigned nverts,
         g_lut_clock = 0;
         g_lut_dirty_min = -1;
         g_lut_dirty_max = -1;
+        lut_hash_reset();
         g_lut_sig = psig;
         g_lut_wipes++;
     }
 
-    for (unsigned t = 0; t < ntris; t++)
-        g_order[t] = t;
-    g_sort_mats = mats;
-    qsort(g_order, ntris, sizeof(unsigned), mat_order_cmp);
-
+    /* O(N) 4-bucket partition: 0=solid, 1=opaque_tex, 2=cutout, 3=pad&1 overlay */
+    unsigned bcount[4] = {0, 0, 0, 0};
     for (unsigned t = 0; t < ntris; t++) {
-        uint16_t base = (uint16_t)(g_order[t] * 3u);
-        g_elem16[t * 3u + 0u] = base + 0u;
-        g_elem16[t * 3u + 1u] = base + 1u;
-        g_elem16[t * 3u + 2u] = base + 2u;
+        const model2_geo_tri_mat_t *m = &mats[t];
+        unsigned b = (m->pad & 1u) ? 3u
+                   : (!(m->flags & MODEL2_GEO_TEX_TEXTURED) ? 0u
+                      : ((m->flags & MODEL2_GEO_TEX_CUTOUT) ? 2u : 1u));
+        bcount[b]++;
     }
+    unsigned boff[4];
+    boff[0] = 0;
+    boff[1] = bcount[0];
+    boff[2] = boff[1] + bcount[1];
+    boff[3] = boff[2] + bcount[2];
 
-    /* Partition sorted order: solids | opaque-tex | cutouts | pad&1 overlays */
-    unsigned world_end = 0;
-    while (world_end < ntris && !(mats[g_order[world_end]].pad & 1u))
-        world_end++;
+    unsigned solid_end = boff[1];
+    unsigned opaque_tex_end = boff[2];
+    unsigned world_end = boff[3];
 
-    unsigned solid_end = 0;
-    while (solid_end < world_end &&
-           !(mats[g_order[solid_end]].flags & MODEL2_GEO_TEX_TEXTURED))
-        solid_end++;
-
-    unsigned opaque_tex_end = solid_end;
-    while (opaque_tex_end < world_end &&
-           (mats[g_order[opaque_tex_end]].flags & MODEL2_GEO_TEX_TEXTURED) &&
-           !(mats[g_order[opaque_tex_end]].flags & MODEL2_GEO_TEX_CUTOUT))
-        opaque_tex_end++;
+    unsigned bcur[4] = { boff[0], boff[1], boff[2], boff[3] };
+    for (unsigned t = 0; t < ntris; t++) {
+        const model2_geo_tri_mat_t *m = &mats[t];
+        unsigned b = (m->pad & 1u) ? 3u
+                   : (!(m->flags & MODEL2_GEO_TEX_TEXTURED) ? 0u
+                      : ((m->flags & MODEL2_GEO_TEX_CUTOUT) ? 2u : 1u));
+        unsigned dst_t = bcur[b]++;
+        g_order[dst_t] = t;
+        uint16_t base = (uint16_t)(t * 3u);
+        g_elem16[dst_t * 3u + 0u] = base + 0u;
+        g_elem16[dst_t * 3u + 1u] = base + 1u;
+        g_elem16[dst_t * 3u + 2u] = base + 2u;
+    }
 
     int has_solids = (solid_end > 0);
     int has_tex = (opaque_tex_end > solid_end) || (world_end > opaque_tex_end);

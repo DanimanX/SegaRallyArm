@@ -1089,7 +1089,7 @@ static void geo_load_model2_projection(const model2_geo_projection_t *p, float z
      * the road, worst on 16-bit Mali framebuffers.
      */
     {
-        const float zn = 10.f;       /* nearest live camera-space z */
+        const float zn = 1.f;        /* nearest live camera-space z */
         const float zf = 262144.f;   /* max camera-space z (15-bit coords) */
         m[10] = (zf + zn) / (zf - zn);
         m[11] = 1.f; /* clip W = positive Model 2 camera-space Z */
@@ -1118,7 +1118,7 @@ static void geo_build_model2_projection(const model2_geo_projection_t *p,
     m[9] = yoff;
     /* Full-range 1/z depth map; see geo_load_model2_projection above. */
     {
-        const float zn = 10.f;
+        const float zn = 1.f;
         const float zf = 262144.f;
         m[10] = (zf + zn) / (zf - zn);
         m[11] = 1.f; /* clip W = positive Model 2 camera-space Z */
